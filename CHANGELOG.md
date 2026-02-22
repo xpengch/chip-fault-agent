@@ -80,6 +80,7 @@
 | Neo4j知识图谱更新 | `src/agents/agent2/knowledge_loop.py:263` | 连接Neo4j并更新节点和关系 |
 | **多轮对话功能** (设计完成) | `docs/MULTI_TURN_DESIGN.md` | 支持用户多次补充信息和信息纠正 |
 
+| **冲突检测与处理** | `docs/CONFLICT_HANDLING.md` | 多轮对话中的信息冲突检测和解决策略 |
 ### 优先级：低
 | 事项 | 文件位置 | 说明 |
 |------|----------|------|
@@ -111,6 +112,13 @@
 
 
 ---
+
+**新增**: 冲突处理策略设计文档
+- 创建 `docs/CONFLICT_HANDLING.md` 完整冲突处理方案
+- 定义4种冲突类型（直接、间接、时序、因果）
+- 设计 ConflictDetector 和 ConflictResolver
+- 提供自动处理规则和用户确认流程
+- 设���前端冲突提示UI
 
 ## 🐛 已知问题
 
