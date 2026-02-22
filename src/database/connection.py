@@ -515,7 +515,7 @@ class DatabaseManager:
         self,
         session_id: str
     ) -> list:
-        """获取会话的所有消息"""
+        """获取会话的所有消息（返回字典格式以避免序列化问题）"""
         from src.database.models import AnalysisMessage
 
         try:
@@ -525,7 +525,24 @@ class DatabaseManager:
                     .where(AnalysisMessage.session_id == session_id)
                     .order_by(AnalysisMessage.sequence_number)
                 )
-                return list(result.scalars().all())
+                messages = result.scalars().all()
+                # 转换为字典格式
+                return [
+                    {
+                        "message_id": msg.message_id,
+                        "session_id": msg.session_id,
+                        "message_type": msg.message_type,
+                        "sequence_number": msg.sequence_number,
+                        "content": msg.content,
+                        "content_type": msg.content_type,
+                        "is_correction": msg.is_correction,
+                        "corrected_message_id": msg.corrected_message_id,
+                        "extracted_fields": msg.extracted_fields or {},
+                        "user_id": msg.user_id,
+                        "created_at": msg.created_at.isoformat() if msg.created_at else None
+                    }
+                    for msg in messages
+                ]
         except Exception as e:
             logger.error(f"[DatabaseManager] 获取会话消息失败: {str(e)}")
             return []

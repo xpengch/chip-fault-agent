@@ -350,6 +350,7 @@ class MultiTurnConversationHandler:
             }
 
     async def _save_snapshot(
+        print("[DEBUG] _save_snapshot CALLED with latest code!!!")
         self,
         session_id: str,
         message_id: int,
