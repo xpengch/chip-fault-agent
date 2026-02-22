@@ -176,9 +176,18 @@ class MultiTurnConversationHandler:
         for msg in messages:
             context["last_sequence"] = max(context["last_sequence"], msg.sequence_number)
 
-            # 记录纠正关系
+            # 记录纠正关系（转换为字典以避免序列化问题）
             if msg.is_correction and msg.corrected_message_id:
-                context["corrections"][msg.corrected_message_id] = msg
+                context["corrections"][msg.corrected_message_id] = {
+                    "message_id": msg.message_id,
+                    "message_type": msg.message_type,
+                    "sequence_number": msg.sequence_number,
+                    "content": msg.content,
+                    "content_type": msg.content_type,
+                    "is_correction": msg.is_correction,
+                    "corrected_message_id": msg.corrected_message_id,
+                    "extracted_fields": msg.extracted_fields or {}
+                }
                 corrected_message_ids.add(msg.corrected_message_id)
                 continue  # 不将纠正信息本身添加到累积上下文
 
@@ -288,7 +297,8 @@ class MultiTurnConversationHandler:
             # 尝试从最新消息获取
             if context["messages"]:
                 last_message = context["messages"][-1]
-                combined_log = last_message.content
+                # 兼容字典格式和SQLAlchemy对象格式
+                combined_log = last_message.get("content") if isinstance(last_message, dict) else last_message.content
 
         # 2. 调用工作流分析
         workflow = get_workflow()
@@ -401,6 +411,44 @@ class MultiTurnConversationHandler:
 
         logger.info(f"[MultiTurnHandler] _save_snapshot - 序列化后messages数量: {len(serializable_context['messages'])}")
 
+        # 调��：检查serializable_context中是否还有SQLAlchemy对象
+        print(f"[DEBUG] Before DB insert - checking serializable_context for SQLAlchemy objects")
+        for key, value in serializable_context.items():
+            if key == "messages":
+                for i, msg in enumerate(value):
+                    if not isinstance(msg, dict):
+                        print(f"[DEBUG] WARNING: Found non-dict in messages at index {i}: {type(msg)}")
+            elif key == "corrections":
+                for k, v in value.items():
+                    if not isinstance(v, dict):
+                        print(f"[DEBUG] WARNING: Found non-dict in corrections[{k}]: {type(v)}")
+
+        # 确保完全JSON可序列化
+        import json
+        try:
+            json.dumps(serializable_context)
+            print(f'[DEBUG] JSON serialization successful')
+        except Exception as e:
+            print(f'[DEBUG] Serialization failed: {e}')
+            # 强制转换所有SQLAlchemy对象
+            for key, value in serializable_context.items():
+                if key == 'messages':
+                    for i, msg in enumerate(value):
+                        if hasattr(msg, '__table__'):
+                            serializable_context['messages'][i] = {
+                                c.name: getattr(msg, c.name) 
+                                for c in msg.__table__.columns
+                            }
+                            print(f'[DEBUG] Converted message {i} to dict')
+                elif key == 'corrections':
+                    for k, v in value.items():
+                        if hasattr(v, '__table__'):
+                            serializable_context['corrections'][k] = {
+                                c.name: getattr(v, c.name) 
+                                for c in v.__table__.columns
+                            }
+                            print(f'[DEBUG] Converted correction {k} to dict')
+
         async with self.db._session_factory() as session:
             snapshot = AnalysisSnapshot(
                 session_id=session_id,
@@ -409,6 +457,58 @@ class MultiTurnConversationHandler:
                 analysis_result=analysis_result
             )
 
+            session.add(snapshot)
+            await session.commit()
+
+
+
+    async def _save_snapshot(
+        self,
+        session_id: str,
+        message_id: int,
+        accumulated_context: Dict[str, Any],
+        analysis_result: Dict[str, Any]
+    ) -> None:
+        """保存分析快照"""
+        import json
+        
+        # 深度转换函数，确保所有SQLAlchemy对象被转换
+        def deep_convert(obj):
+            if hasattr(obj, '__table__'):  # SQLAlchemy对象
+                return {c.name: deep_convert(getattr(obj, c.name)) for c in obj.__table__.columns}
+            elif isinstance(obj, dict):
+                return {k: deep_convert(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [deep_convert(item) for item in obj]
+            else:
+                return obj
+        
+        # 深度转换整个context
+        try:
+            serializable_context = deep_convert(accumulated_context)
+            # 验证可以JSON序列化
+            json.dumps(serializable_context)
+            print(f'[DEBUG] Serialization successful')
+        except Exception as e:
+            print(f'[DEBUG] Serialization failed: {e}')
+            # 作为后备，创建最小化的context
+            serializable_context = {
+                'session_id': accumulated_context.get('session_id'),
+                'messages': [],
+                'accumulated_logs': accumulated_context.get('accumulated_logs', []),
+                'accumulated_features': accumulated_context.get('accumulated_features', {}),
+                'corrections': {},
+                'last_sequence': accumulated_context.get('last_sequence', 0),
+                'chip_model': accumulated_context.get('chip_model')
+            }
+        
+        async with self.db._session_factory() as session:
+            snapshot = AnalysisSnapshot(
+                session_id=session_id,
+                message_id=message_id,
+                accumulated_context=serializable_context,
+                analysis_result=analysis_result
+            )
             session.add(snapshot)
             await session.commit()
 
