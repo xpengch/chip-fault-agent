@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>芯片失效分析报告 - {{ analysis_id }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header .meta {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .section {
+            background: white;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .section h2 {
+            color: #667eea;
+            font-size: 20px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .info-item .label {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .info-item .value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .error-codes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .error-code {
+            background: #ff6b6b;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+        }
+
+        .confidence-bar {
+            margin: 20px 0;
+        }
+
+        .confidence-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .confidence-bar-bg {
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        .confidence-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            transition: width 0.3s ease;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #e0e0e0;
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-bottom: 25px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -34px;
+            top: 0;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #667eea;
+            border: 2px solid white;
+        }
+
+        .timeline-item .step {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .timeline-item .description {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #51cf66;
+            color: white;
+        }
+
+        .badge-warning {
+            background: #ffd43b;
+            color: #333;
+        }
+
+        .badge-info {
+            background: #4dabf7;
+            color: white;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .status-unknown {
+            background: #f8f9fa;
+            border-left: 4px solid #6c757d;
+        }
+
+        .status-compute {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+
+        .status-cache {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .status-interconnect {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+
+        .status-memory {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>芯片失效分析报告</h1>
+            <div class="meta">
+                <span>分析ID: {{ analysis_id }}</span> |
+                <span>芯片型号: {{ chip_model }}</span> |
+                <span>生成时间: {{ created_at }}</span>
+            </div>
+        </div>
+
+        <!-- 分析结果摘要 -->
+        <div class="section">
+            <h2>分析结果摘要</h2>
+
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="label">失效域</div>
+                    <div class="value">{{ failure_domain|upper }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">失效模块</div>
+                    <div class="value">{{ module|upper }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">根因</div>
+                    <div class="value">{{ root_cause }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">置信度</div>
+                    <div class="value">{{ "%.1f%%"|format(confidence * 100) }}</div>
+                </div>
+            </div>
+
+            {% if confidence is defined %}
+            <div class="confidence-bar">
+                <div class="confidence-label">
+                    <span>推理置信度</span>
+                    <span>{{ "%.1f%%"|format(confidence * 100) }}</span>
+                </div>
+                <div class="confidence-bar-bg">
+                    <div class="confidence-bar-fill" style="width: {{ confidence * 100 }}%">
+                        {{ "%.1f%%"|format(confidence * 100) }}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if confidence is defined and confidence < 0.7 %}
+            <div class="highlight">
+                <strong>⚠️ 注意:</strong> 推理置信度低于70%，建议专家复核分析结果。
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 故障特征 -->
+        {% if fault_features is defined and fault_features %}
+        <div class="section">
+            <h2>故障特征</h2>
+
+            {% if fault_features.error_codes %}
+            <div class="info-item" style="margin-bottom: 15px;">
+                <div class="label">检测到的错误码</div>
+                <div class="error-codes">
+                    {% for code in fault_features.error_codes %}
+                    <span class="error-code">{{ code }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if fault_features.modules %}
+            <div class="info-item">
+                <div class="label">涉及模块</div>
+                <div class="value">
+                    {% for module in fault_features.modules %}
+                    <span class="badge badge-info">{{ module|upper }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- 推理过程 -->
+        {% if infer_trace is defined and infer_trace %}
+        <div class="section">
+            <h2>分析过程</h2>
+
+            <div class="timeline">
+                {% for step in infer_trace %}
+                <div class="timeline-item">
+                    <div class="step">{{ step.description }}</div>
+                    <div class="description">
+                        时间: {{ step.timestamp }}<br>
+                        {% if step.result is defined %}
+                        {% for key, value in step.result.items() %}
+                        {{ key }}: {{ value }}
+                        {% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 多源推理结果 -->
+        {% if delimit_results is defined and delimit_results %}
+        <div class="section">
+            <h2>多源推理结果</h2>
+
+            {% for result in delimit_results %}
+            <div class="info-item" style="margin-bottom: 10px;">
+                <div class="label">{{ result.type|upper }}</div>
+                <div class="value">
+                    域: {{ result.result.failure_domain|upper }} |
+                    模块: {{ result.result.failure_module|upper }} |
+                    置信度: {{ "%.1f%%"|format(result.result.confidence * 100) }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- 专家修正信息 -->
+        {% if expert_correction is defined and expert_correction %}
+        <div class="section">
+            <h2>专家修正</h2>
+
+            <div class="info-item">
+                <div class="label">修正状态</div>
+                <div class="value">
+                    {% if expert_correction.correction_status == "approved" %}
+                    <span class="badge badge-success">已批准</span>
+                    {% elif expert_correction.correction_status == "rejected" %}
+                    <span class="badge badge-warning">已拒绝</span>
+                    {% else %}
+                    <span class="badge badge-info">待处理</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if expert_correction.correction_reason %}
+            <div class="highlight">
+                <div class="label">修正说明</div>
+                <div>{{ expert_correction.correction_reason }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- 知识更新 -->
+        {% if knowledge_updates is defined and knowledge_updates %}
+        <div class="section">
+            <h2>知识学习</h2>
+
+            {% if knowledge_updates.case_learned %}
+            <div class="info-item">
+                <div class="label">案例学习</div>
+                <div class="value">✅ 已创建新案例到案例库</div>
+            </div>
+            {% endif %}
+
+            {% if knowledge_updates.rules_updated %}
+            <div class="info-item">
+                <div class="label">规则更新</div>
+                <div class="value">✅ 已更新推理规则库</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>本报告由芯片失效分析AI Agent系统自动生成</p>
+            <p>如有疑问，请联系系统管理员</p>
+            <p style="margin-top: 10px; font-size: 12px; color: #999;">
+                生成时间: {{ created_at }} | 系统版本: 1.0.0
+            </p>
+        </div>
+    </div>
+</body>
+</html>
