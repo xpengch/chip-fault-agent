@@ -508,6 +508,77 @@ class DatabaseManager:
                     "offset": offset
                 }
 
+    # ============================================
+    # 多轮对话功能方法
+    # ============================================
+    async def get_session_messages(
+        self,
+        session_id: str
+    ) -> list:
+        """获取会话的所有消息"""
+        from src.database.models import AnalysisMessage
+
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(AnalysisMessage)
+                    .where(AnalysisMessage.session_id == session_id)
+                    .order_by(AnalysisMessage.sequence_number)
+                )
+                return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"[DatabaseManager] 获取会话消息失败: {str(e)}")
+            return []
+
+    async def get_session_snapshots(
+        self,
+        session_id: str
+    ) -> list:
+        """获取会话的所有快照"""
+        from src.database.models import AnalysisSnapshot
+
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(AnalysisSnapshot)
+                    .where(AnalysisSnapshot.session_id == session_id)
+                    .order_by(AnalysisSnapshot.created_at)
+                )
+                return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"[DatabaseManager] 获取会话快照失败: {str(e)}")
+            return []
+
+    async def get_latest_snapshot(
+        self,
+        session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """获取会话的最新快照"""
+        from src.database.models import AnalysisSnapshot
+
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(AnalysisSnapshot)
+                    .where(AnalysisSnapshot.session_id == session_id)
+                    .order_by(AnalysisSnapshot.created_at.desc())
+                    .limit(1)
+                )
+                snapshot = result.scalar_one_or_none()
+
+                if snapshot:
+                    return {
+                        "snapshot_id": snapshot.snapshot_id,
+                        "message_id": snapshot.message_id,
+                        "accumulated_context": snapshot.accumulated_context,
+                        "analysis_result": snapshot.analysis_result,
+                        "created_at": snapshot.created_at
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"[DatabaseManager] 获取最新快照失败: {str(e)}")
+            return None
+
 
 # ============================================
 # 全局数据库管理器实例

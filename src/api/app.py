@@ -28,6 +28,7 @@ from .routes import router as routes_router
 from .auth_routes import router as auth_router
 from .admin_routes import router as admin_router
 from .expert_routes import router as expert_router
+from .multi_turn_routes import router as multi_turn_router
 from ..auth.middleware import AuditLogMiddleware, AuthenticationMiddleware
 
 
@@ -86,6 +87,7 @@ app.include_router(routes_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(expert_router)
+app.include_router(multi_turn_router)
 
 
 # ==================== 全局异常处理 ====================

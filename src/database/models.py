@@ -431,13 +431,13 @@ class AnalysisMessage(Base):
     superseded_by: Mapped[Optional[int]] = mapped_column(BigInteger)  # 被哪条消息替代
     confidence_score: Mapped[Optional[float]] = mapped_column(Float)  # 信息的置信度
 
-    # 关系
-    corrected_message: Mapped[Optional["AnalysisMessage"]] = relationship(
-        "AnalysisMessage", remote_side=[message_id], foreign_keys=[corrected_message_id]
-    )
-    superseding_message: Mapped[Optional["AnalysisMessage"]] = relationship(
-        "AnalysisMessage", remote_side=[message_id], foreign_keys=[superseded_by]
-    )
+    # 关系暂时禁用，避免自引用关系映射问题
+    # corrected_message: Mapped[Optional["AnalysisMessage"]] = relationship(
+    #     foreign_keys=[corrected_message_id]
+    # )
+    # superseding_message: Mapped[Optional["AnalysisMessage"]] = relationship(
+    #     foreign_keys=[superseded_by]
+    # )
 
     __table_args__ = (
         Index("idx_analysis_messages_session", "session_id"),
@@ -457,8 +457,8 @@ class AnalysisSnapshot(Base):
     analysis_result: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)  # 该次分析结果
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    # 关系
-    message: Mapped["AnalysisMessage"] = relationship("AnalysisMessage", foreign_keys=[message_id])
+    # 关系暂时禁用
+    # message: Mapped["AnalysisMessage"] = relationship("AnalysisMessage", foreign_keys=[message_id])
 
     __table_args__ = (
         Index("idx_analysis_snapshots_session", "session_id"),
@@ -484,13 +484,13 @@ class AnalysisConflict(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    # 关系
-    existing_message: Mapped["AnalysisMessage"] = relationship(
-        "AnalysisMessage", foreign_keys=[existing_message_id]
-    )
-    new_message: Mapped["AnalysisMessage"] = relationship(
-        "AnalysisMessage", foreign_keys=[new_message_id]
-    )
+    # 关系暂时禁用
+    # existing_message: Mapped["AnalysisMessage"] = relationship(
+    #     "AnalysisMessage", foreign_keys=[existing_message_id]
+    # )
+    # new_message: Mapped["AnalysisMessage"] = relationship(
+    #     "AnalysisMessage", foreign_keys=[new_message_id]
+    # )
 
     __table_args__ = (
         Index("idx_analysis_conflicts_session", "session_id"),
