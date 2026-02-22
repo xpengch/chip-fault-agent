@@ -75,7 +75,27 @@ class MultiTurnConversationHandler:
                 user_id=user_id
             )
 
-            # 6. 触发重新分析
+            # 更新上下文的 last_sequence
+            context["last_sequence"] = next_sequence
+
+            # 6. 将新消息添加到上下文（用于后续分析和响应生成）
+            print(f"[DEBUG] Before append - messages count: {len(context.get('messages', []))}, id of messages: {id(context.get('messages'))}")
+            context["messages"].append({
+                "message_id": user_message["message_id"],
+                "message_type": message_type,
+                "sequence_number": next_sequence,
+                "content": content,
+                "content_type": content_type,
+                "is_correction": correction_target is not None,
+                "corrected_message_id": correction_target,
+                "extracted_fields": {}
+            })
+            print(f"[DEBUG] After append - messages count: {len(context.get('messages', []))}, context id: {id(context)}")
+
+            # 调试日志
+            logger.info(f"[MultiTurnHandler] 消息添加后的上下文 - messages数量: {len(context['messages'])}, next_sequence: {next_sequence}")
+
+            # 7. 触发重新分析
             analysis_result = await self._analyze_with_context(
                 session_id,
                 context,
@@ -83,7 +103,7 @@ class MultiTurnConversationHandler:
                 user_id
             )
 
-            # 7. 保存快照
+            # 8. 保存快照
             await self._save_snapshot(
                 session_id=session_id,
                 message_id=user_message["message_id"],
@@ -91,13 +111,17 @@ class MultiTurnConversationHandler:
                 analysis_result=analysis_result
             )
 
-            # 8. 生成系统响应
+            # 9. 生成系统响应
+            # 计算用户消息数（当前序列号+1）/2
+            user_message_count = (next_sequence + 1) // 2
+            print(f"[DEBUG] user_message_count calculation: next_sequence={next_sequence}, user_message_count={user_message_count}")
             response = await self._generate_response(
                 context,
-                analysis_result
+                analysis_result,
+                user_message_count
             )
 
-            # 9. 保存系统响应消息
+            # 10. 保存系统响应消息
             await self._save_message(
                 session_id=session_id,
                 message_type="system_response",
@@ -162,8 +186,17 @@ class MultiTurnConversationHandler:
             if msg.message_id in corrected_message_ids:
                 continue
 
-            # 累积有效消息
-            context["messages"].append(msg)
+            # 累积有效消息（转换为字典以避免序列化问题）
+            context["messages"].append({
+                "message_id": msg.message_id,
+                "message_type": msg.message_type,
+                "sequence_number": msg.sequence_number,
+                "content": msg.content,
+                "content_type": msg.content_type,
+                "is_correction": msg.is_correction,
+                "corrected_message_id": msg.corrected_message_id,
+                "extracted_fields": msg.extracted_fields or {}
+            })
 
             if msg.content_type == "log":
                 context["accumulated_logs"].append(msg.content)
@@ -314,11 +347,65 @@ class MultiTurnConversationHandler:
         analysis_result: Dict[str, Any]
     ) -> None:
         """保存分析快照"""
+        # 调试日志：保存快照时的上下文状态
+        messages_list = accumulated_context.get("messages", [])
+        print(f"[DEBUG] _save_snapshot - messages数量: {len(messages_list)}, message_id: {message_id}, context id: {id(accumulated_context)}")
+        logger.info(f"[MultiTurnHandler] _save_snapshot - messages数量: {len(messages_list)}, message_id: {message_id}")
+
+        # 将SQLAlchemy对象转换为字典以便JSON序列化
+        serializable_messages = []
+        for msg in messages_list:
+            if isinstance(msg, dict):
+                # 已经是字典格式，直接使用
+                serializable_messages.append(msg)
+            else:
+                # SQLAlchemy对象，需要转换
+                serializable_messages.append({
+                    "message_id": msg.message_id,
+                    "message_type": msg.message_type,
+                    "sequence_number": msg.sequence_number,
+                    "content": msg.content,
+                    "content_type": msg.content_type,
+                    "is_correction": msg.is_correction,
+                    "corrected_message_id": msg.corrected_message_id,
+                    "extracted_fields": msg.extracted_fields or {}
+                })
+
+        # 将corrections字典中的SQLAlchemy对象也转换为字典
+        serializable_corrections = {}
+        for msg_id, correction_msg in accumulated_context.get("corrections", {}).items():
+            if isinstance(correction_msg, dict):
+                serializable_corrections[msg_id] = correction_msg
+            else:
+                # SQLAlchemy对象，需要转换
+                serializable_corrections[msg_id] = {
+                    "message_id": correction_msg.message_id,
+                    "message_type": correction_msg.message_type,
+                    "sequence_number": correction_msg.sequence_number,
+                    "content": correction_msg.content,
+                    "content_type": correction_msg.content_type,
+                    "is_correction": correction_msg.is_correction,
+                    "corrected_message_id": correction_msg.corrected_message_id,
+                    "extracted_fields": correction_msg.extracted_fields or {}
+                }
+
+        serializable_context = {
+            "session_id": accumulated_context.get("session_id"),
+            "messages": serializable_messages,
+            "accumulated_logs": accumulated_context.get("accumulated_logs", []),
+            "accumulated_features": accumulated_context.get("accumulated_features", {}),
+            "corrections": serializable_corrections,
+            "last_sequence": accumulated_context.get("last_sequence", 0),
+            "chip_model": accumulated_context.get("chip_model")
+        }
+
+        logger.info(f"[MultiTurnHandler] _save_snapshot - 序列化后messages数量: {len(serializable_context['messages'])}")
+
         async with self.db._session_factory() as session:
             snapshot = AnalysisSnapshot(
                 session_id=session_id,
                 message_id=message_id,
-                accumulated_context=accumulated_context,
+                accumulated_context=serializable_context,
                 analysis_result=analysis_result
             )
 
@@ -328,16 +415,18 @@ class MultiTurnConversationHandler:
     async def _generate_response(
         self,
         context: Dict[str, Any],
-        analysis_result: Dict[str, Any]
+        analysis_result: Dict[str, Any],
+        user_message_count: int
     ) -> str:
         """生成系统响应"""
         # 基于分析结果生成对话式响应
         need_expert = analysis_result.get("need_expert", False)
         confidence = analysis_result.get("final_root_cause", {}).get("confidence", 0)
 
-        message_count = len(context.get("messages", []))
+        print(f"[DEBUG] _generate_response: user_message_count={user_message_count}, confidence={confidence}")
+        logger.info(f"[MultiTurnHandler] 生成响应 - user_message_count: {user_message_count}, confidence: {confidence}")
 
-        if message_count == 1:
+        if user_message_count == 1:
             # 首次分析
             if confidence < 0.5:
                 return "当前信息不足以做出准确判断，建议提供更多日志信息，如：错误码、寄存器值、故障发生时间等。"
@@ -348,9 +437,9 @@ class MultiTurnConversationHandler:
         else:
             # 多轮对话
             if confidence < 0.5:
-                return f"已收到您提供的信息（共{message_count}条输入），但置信度仍较低({confidence*100:.1f}%)。请提供更多关键信息，如：完整的错误日志、环境参数、操作步骤等。"
+                return f"已收到您提供的信息（共{user_message_count}条输入），但置信度仍较低({confidence*100:.1f}%)。请提供更多关键信息，如：完整的错误日志、环境参数、操作步骤等。"
             elif need_expert:
-                return f"分析更新完成，置信度{confidence*100:.1f}%。基于{message_count}条输入的分析仍建议专家确认。您可以继续补充信息或请求专家介入。"
+                return f"分析更新完成，置信度{confidence*100:.1f}%。基于{user_message_count}条输入的分析仍建议专家确认。您可以继续补充信息或请求专家介入。"
             else:
                 return f"分析更新完成，置信度{confidence*100:.1f}%。失效域确定为{analysis_result.get('final_root_cause', {}).get('failure_domain')}。如有其他信息需要补充，请继续提供。"
 
