@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     Column, String, Integer, Float, Boolean,
     DateTime, ForeignKey, Index, Text, Numeric, Date,
-    CheckConstraint, UniqueConstraint, ARRAY, UUID, MetaData
+    CheckConstraint, UniqueConstraint, ARRAY, UUID, MetaData, BigInteger
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
@@ -403,6 +403,98 @@ class StatisticsSummary(Base):
     __table_args__ = (
         UniqueConstraint("stat_date", "stat_type", "chip_model", name="uq_statistics"),
         Index("idx_stats_date", "stat_date"),
+    )
+
+
+# ============================================
+# 多轮对话功能表
+# ============================================
+class AnalysisMessage(Base):
+    """用户交互消息表"""
+    __tablename__ = "analysis_messages"
+
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    message_type: Mapped[str] = mapped_column(String(50), nullable=False)  # user_input, correction, system_response, analysis_result
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[Optional[str]] = mapped_column(String(50))  # text, log, correction_data
+    message_metadata: Mapped[Dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    is_correction: Mapped[bool] = mapped_column(Boolean, default=False)
+    corrected_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)  # 指向被纠正的消息
+
+    # 多轮对话扩展字段
+    extracted_fields: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict)  # 从此消息提取的字段
+    is_conflicted: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_superseded: Mapped[bool] = mapped_column(Boolean, default=False)
+    superseded_by: Mapped[Optional[int]] = mapped_column(BigInteger)  # 被哪条消息替代
+    confidence_score: Mapped[Optional[float]] = mapped_column(Float)  # 信息的置信度
+
+    # 关系
+    corrected_message: Mapped[Optional["AnalysisMessage"]] = relationship(
+        "AnalysisMessage", remote_side=[message_id], foreign_keys=[corrected_message_id]
+    )
+    superseding_message: Mapped[Optional["AnalysisMessage"]] = relationship(
+        "AnalysisMessage", remote_side=[message_id], foreign_keys=[superseded_by]
+    )
+
+    __table_args__ = (
+        Index("idx_analysis_messages_session", "session_id"),
+        Index("idx_analysis_messages_sequence", "session_id", "sequence_number"),
+        Index("idx_analysis_messages_correction", "corrected_message_id"),
+    )
+
+
+class AnalysisSnapshot(Base):
+    """分析快照表"""
+    __tablename__ = "analysis_snapshots"
+
+    snapshot_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)  # 关联到触发的消息
+    accumulated_context: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)  # 累积的所有信息
+    analysis_result: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)  # 该次分析结果
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # 关系
+    message: Mapped["AnalysisMessage"] = relationship("AnalysisMessage", foreign_keys=[message_id])
+
+    __table_args__ = (
+        Index("idx_analysis_snapshots_session", "session_id"),
+        Index("idx_analysis_snapshots_message", "message_id"),
+    )
+
+
+class AnalysisConflict(Base):
+    """冲突记录表"""
+    __tablename__ = "analysis_conflicts"
+
+    conflict_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    conflict_type: Mapped[str] = mapped_column(String(50), nullable=False)  # direct, indirect, temporal, causal
+    field_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    existing_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    new_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    existing_value: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    new_value: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)  # high, medium, low
+    resolution: Mapped[Optional[str]] = mapped_column(String(50))  # use_existing, use_new, merge, manual
+    resolved_value: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # 关系
+    existing_message: Mapped["AnalysisMessage"] = relationship(
+        "AnalysisMessage", foreign_keys=[existing_message_id]
+    )
+    new_message: Mapped["AnalysisMessage"] = relationship(
+        "AnalysisMessage", foreign_keys=[new_message_id]
+    )
+
+    __table_args__ = (
+        Index("idx_analysis_conflicts_session", "session_id"),
+        Index("idx_analysis_conflicts_messages", "existing_message_id", "new_message_id"),
     )
 
 
