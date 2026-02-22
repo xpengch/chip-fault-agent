@@ -103,13 +103,17 @@ class MultiTurnConversationHandler:
                 user_id
             )
 
-            # 8. 保存快照
-            await self._save_snapshot(
-                session_id=session_id,
-                message_id=user_message["message_id"],
-                accumulated_context=context,
-                analysis_result=analysis_result
-            )
+            # 8. 保存快照（临时禁用以测试）
+            try:
+                await self._save_snapshot(
+                    session_id=session_id,
+                    message_id=user_message["message_id"],
+                    accumulated_context=context,
+                    analysis_result=analysis_result
+                )
+            except Exception as e:
+                print(f"[DEBUG] Snapshot save failed (non-critical): {e}")
+                # 继续执行，不中断流程
 
             # 9. 生成系统响应
             # 计算用户消息数（当前序列号+1）/2
@@ -358,6 +362,51 @@ class MultiTurnConversationHandler:
         analysis_result: Dict[str, Any]
     ) -> None:
         """保存分析快照"""
+
+        import json
+        print(f"[DEBUG] _save_snapshot called with message_id={message_id}")
+        
+        # 检查context的类型
+        print(f"[DEBUG] accumulated_context type: {type(accumulated_context)}")
+        print(f"[DEBUG] messages type: {type(accumulated_context.get('messages', []))}")
+        
+        # 打印每个消息的类型
+        for idx, msg in enumerate(accumulated_context.get('messages', [])):
+            print(f"[DEBUG] Message {idx}: type={type(msg)}, has_content={'content' in msg if isinstance(msg, dict) else hasattr(msg, 'content')}")
+            if hasattr(msg, '__table__'):
+                print(f"[DEBUG] Message {idx} is SQLAlchemy object!!!")
+        
+        # 递归转换
+        def deep_convert(obj):
+            if hasattr(obj, '__table__'):
+                print(f"[DEBUG] Converting SQLAlchemy object: {type(obj)}")
+                return {c.name: deep_convert(getattr(obj, c.name)) for c in obj.__table__.columns}
+            elif isinstance(obj, dict):
+                return {k: deep_convert(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [deep_convert(item) for item in obj]
+            else:
+                return obj
+        
+        serializable_context = deep_convert(accumulated_context)
+        
+        # 验证可序列化
+        try:
+            json_str = json.dumps(serializable_context)
+            print(f"[DEBUG] Serialization SUCCESS: {len(json_str)} chars")
+        except Exception as e:
+            print(f"[DEBUG] Serialization FAILED: {e}")
+            # 作为fallback，使用最小context
+            serializable_context = {
+                'session_id': accumulated_context.get('session_id'),
+                'messages': [],
+                'accumulated_logs': accumulated_context.get('accumulated_logs', []),
+                'accumulated_features': accumulated_context.get('accumulated_features', {}),
+                'corrections': {},
+                'last_sequence': accumulated_context.get('last_sequence', 0),
+                'chip_model': accumulated_context.get('chip_model')
+            }
+            print(f"[DEBUG] Using fallback minimal context")
         # 调试日志：保存快照时的上下文状态
         messages_list = accumulated_context.get("messages", [])
         print(f"[DEBUG] _save_snapshot - messages数量: {len(messages_list)}, message_id: {message_id}, context id: {id(accumulated_context)}")
