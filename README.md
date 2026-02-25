@@ -1,363 +1,381 @@
-# 芯片失效分析AI Agent系统
+# Chip Fault AI Agent System
 
-基于自研SoC芯片的AI驱��失效分析系统，支持多模块故障定位、根因推理和知识闭环。
+AI-driven chip failure analysis system for self-developed SoC chips, supporting multi-module fault localization, root cause reasoning, and knowledge closed-loop.
 
-## 系统架构
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![Docker](https://img.shields.io/badge/docker-latest-blue.svg)](https://www.docker.com/)
 
-- **2-Agent方案**: Agent1（推理核心） + Agent2（专家交互与知识循环）
-- **MCP标准能力层**: 统一的工具调用接口
-- **RBAC权限控制**: 基于角色的访问控制与JWT认证
-- **混合数据存储**: PostgreSQL + pgvector + Neo4j + Redis
-- **支持模块**: CPU、L3缓存、HA（一致性代理）、NoC、DDR、HBM
+## Features
 
-## 系统特性
+### Core Capabilities
+- **Multi-Source Reasoning**: Knowledge graph + case matching + rule-based inference
+- **Log Parsing**: Automatic feature extraction from chip logs
+- **Intelligent Reporting**: Auto-generated HTML analysis reports
+- **Expert Feedback Loop**: Learn from expert corrections to improve accuracy
+- **Multi-Turn Conversation**: Interactive dialog for deeper analysis
 
-### Phase 1 - 核心功能 ✅
-- 多源推理（知识图谱、案例匹配、规则库）
-- 日志解析与特征提取
-- 智能报告生成
-- LangGraph工作流编排
-- FastAPI后端 + Streamlit前端
+### Technical Highlights
+- **Local Embedding**: BGE model for Chinese text processing (offline-capable)
+- **Multi-Agent Architecture**: Agent1 (reasoning) + Agent2 (expert interaction)
+- **RBAC Security**: Role-based access control with JWT authentication
+- **Hybrid Storage**: PostgreSQL + pgvector + Neo4j + Redis
+- **Docker Deployment**: Complete containerization with offline support
+- **System Monitoring**: Real-time health checks and alerting
 
-### Phase 2 - 扩展功能 ✅
-- **RBAC权限系统**: 用户、角色、权限三层权限控制
-- **JWT认证**: 访问令牌 + 刷新令牌机制
-- **Agent2专家交互**: 智能专家分配与工作负载管理
-- **知识循环学习**: 从专家修正中学习，更新案例和规则
-- **审计日志**: 完整的操作审计追踪
-- **专家修正流程**: 提交、审批、拒绝的知识闭环
+## Architecture
 
-## 项目结构
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Frontend (React + Vite)                  │
+│                    http://localhost:3000                        │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+┌─────────────────────────────▼───────────────────────────────────┐
+│                      FastAPI Backend (Port 8889)                │
+│  ┌───────────────┐  ┌──────────────┐  ┌─────────────────────��  │
+│  │   Auth/JWT    │  │  Routes      │  │   Monitoring        │  │
+│  │   RBAC        │  │  - Analyze   │  │   Health Checks     │  │
+│  │               │  │  - Expert    │  │   Alerts            │  │
+│  └───────────────┘  │  - Admin     │  └─────────────────────┘  │
+│                     └──────────────┘                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                 Multi-Agent Orchestrator                │   │
+│  │  ┌────────────┐              ┌────────────┐             │   │
+│  │  │  Agent1    │              │  Agent2    │             │   │
+│  │  │  Reasoning │◄────────────►│  Expert    │             │   │
+│  │  │  Core      │              │  Knowledge │             │   │
+│  │  └────────────┘              │  Loop      │             │   │
+│  │                              └────────────┘             │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                    MCP Tools Layer                      │   │
+│  │  Log Parser | KG Query | Case Match | Rule Engine      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+┌───────▼────────┐   ┌────────▼────────┐   ┌───────▼────────┐
+│  PostgreSQL    │   │     Neo4j       │   │     Redis      │
+│  + pgvector    │   │   Knowledge     │   │    Cache       │
+│  (Vector DB)   │   │     Graph       │   │   (Sessions)   │
+└────────────────┘   └─────────────────┘   └────────────────┘
+```
+
+## Quick Start
+
+### Prerequisites
+
+- **Windows 10/11** or **Linux** (Docker deployment recommended)
+- **Docker Desktop** 4.0+ (with WSL 2 on Windows)
+- **Python 3.12** (for development)
+- **8GB+ RAM** recommended
+
+### Option 1: Docker Deployment (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/xpengch/chip-fault-agent.git
+cd chip-fault-agent
+
+# Copy environment template
+cp .env.docker.template .env
+
+# Edit .env and set ANTHROPIC_API_KEY
+notepad .env  # Windows
+# nano .env   # Linux
+
+# Start all services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+```
+
+**Access URLs:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8889
+- API Documentation: http://localhost:8889/docs
+
+### Option 2: Offline Deployment
+
+For air-gapped environments, use the complete offline package:
+
+```bash
+# Run the export script to create offline package
+export-offline.bat  # Windows
+# or
+./export-offline.sh  # Linux
+
+# This creates a self-contained package with:
+# - Docker images
+# - BGE embedding model
+# - Python dependencies
+# - Docker installer
+```
+
+See [README_OFFLINE.md](README_OFFLINE.md) for detailed instructions.
+
+### Option 3: Development Mode
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Start databases (requires PostgreSQL, Neo4j, Redis)
+docker compose up -d postgres neo4j redis
+
+# Initialize database
+python scripts/init_db.py
+
+# Start backend
+uvicorn src.api.app:app --host 0.0.0.0 --port 8889 --reload
+
+# Start frontend (new terminal)
+cd frontend-v2
+npm install
+npm run dev
+```
+
+## Project Structure
 
 ```
 chip_fault_agent/
 ├── src/
-│   ├── agents/           # Agent实现
-│   │   ├── agent1/      # Agent1推理核心
-│   │   ├── agent2/      # Agent2专家交互与知识循环
-│   │   └── workflow.py   # LangGraph工作流编排
-│   ├── mcp/              # MCP工具集
-│   │   ├── tools/        # 工具实现
-│   │   └── server.py     # MCP服务器
-│   ├── database/         # 数据库模型和Repository
-│   │   ├── models.py     # 核心数据模型
-│   │   ├── rbac_models.py # RBAC权限模型
-│   │   └── connection.py # 数据库连接管理
-│   ├── auth/             # 认证与授权
-│   │   ├── service.py    # 认证服务
-│   │   ├── decorators.py # 认证装饰器
-│   │   ├── dependencies.py # FastAPI依赖注入
-│   │   └── middleware.py # 认证中间件
-│   ├── api/              # FastAPI接口
-│   │   ├── app.py        # FastAPI主应用
-│   │   ├── analyze_routes.py # 分析相关路由
-│   │   ├── auth_routes.py # 认证相关路由
-│   │   ├── admin_routes.py # 管理员路由
-│   │   └── expert_routes.py # 专家修正路由
-│   ├── config/           # 配置管理
-│   └── utils/            # 工具函数
-├── frontend/            # Streamlit前端
-│   └── app.py          # Streamlit主应用
-├── data/                # 数据目录
-│   ├── logs/
-│   ├── uploads/
-│   └── reports/
-├── templates/           # HTML报告模板
-├── tests/               # 测试代码
-├── docs/                # 文档
-├── scripts/            # 启动和初始化脚本
-├── docker-compose.yml    # Docker编排
-├── Dockerfile          # 容器构建
-├── run.py             # 启动脚本
-└── requirements.txt     # Python依赖
+│   ├── agents/              # Multi-Agent implementation
+│   │   ├── agent1/         # Agent1 - Reasoning Core
+│   │   ├── agent2/         # Agent2 - Expert Interaction
+│   │   ├── workflow.py     # LangGraph orchestration
+│   │   └── multi_turn_handler.py  # Multi-turn conversation
+│   ├── mcp/                # MCP tools layer
+│   │   └── tools/          # Tool implementations
+│   ├── database/           # Database models & repositories
+│   │   ├── models.py       # Core data models
+│   │   ├── rbac_models.py  # RBAC permission models
+│   │   └── migrations/     # Database migrations
+│   ├── auth/               # Authentication & authorization
+│   │   ├── service.py      # Auth service
+│   │   ├── decorators.py   # Auth decorators
+│   │   └── middleware.py   # Auth middleware
+│   ├── api/                # FastAPI routes
+│   │   ├── app.py          # Main application
+│   │   ├── analyze_routes.py
+│   │   ├── auth_routes.py
+│   │   ├── admin_routes.py
+│   │   ├── expert_routes.py
+│   │   └── monitoring_routes.py
+│   ├── embedding/          # BGE embedding manager
+│   │   └── bge_manager.py  # Local BGE model wrapper
+│   ├── monitoring/         # System monitoring
+│   │   └── alerts.py       # Health check & alerting
+│   └── config/             # Configuration management
+├── frontend-v2/            # React + Vite frontend
+│   ├── src/
+│   │   ├── pages/
+│   │   │   └── AnalyzePage.jsx
+│   │   ├── components/
+│   │   └── api.js
+│   ├── Dockerfile.frontend
+│   └── nginx.conf
+├── docker-compose.yml      # Docker orchestration
+├── Dockerfile.backend      # Backend container
+├── Dockerfile.postgres     # PostgreSQL with pgvector
+├── scripts/                # Utility scripts
+│   ├── init_db.py
+│   └── init_bge_model.py
+├── sql/                    # Database initialization
+└── docs/                   # Documentation
+    └── BGE_EMBEDDING_GUIDE.md
 ```
 
-## 快速开始
+## Configuration
 
-### 1. 环境要求
+Key environment variables (`.env.docker.template`):
 
-- Python 3.11+
-- PostgreSQL 15+ (with pgvector)
-- Neo4j 5+
-- Redis 7+
-- Docker & Docker Compose (可选）
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key | - | ✅ |
+| `POSTGRES_HOST` | PostgreSQL host | postgres | - |
+| `POSTGRES_DB` | Database name | chip_analysis | - |
+| `NEO4J_URI` | Neo4j connection URI | bolt://neo4j:7687 | - |
+| `REDIS_HOST` | Redis host | redis | - |
+| `EMBEDDING_BACKEND` | Embedding backend | bge | - |
+| `EMBEDDING_MODEL` | BGE model name | BAAI/bge-large-zh-v1.5 | - |
+| `TRANSFORMERS_CACHE` | Model cache path | /app/models | - |
+| `DEFAULT_CONFIDENCE_THRESHOLD` | Expert intervention threshold | 0.7 | - |
 
-### 2. 安装依赖
+## API Documentation
+
+### Authentication
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `POST /api/v1/auth/register` | Register | Create new user |
+| `POST /api/v1/auth/login` | Login | Get access token |
+| `POST /api/v1/auth/logout` | Logout | Invalidate session |
+| `GET /api/v1/auth/me` | Get User | Current user info |
+
+### Analysis
+
+| Endpoint | Method | Description | Permission |
+|----------|--------|-------------|------------|
+| `POST /api/v1/analyze` | Submit | Analyze chip logs | `analysis:create` |
+| `GET /api/v1/analysis/{id}` | Get Result | Fetch analysis result | `analysis:read` |
+| `POST /api/v1/analyze/{id}/continue` | Continue | Multi-turn follow-up | `analysis:create` |
+| `GET /api/v1/modules` | List | Supported modules | `analysis:read` |
+
+### Expert Correction
+
+| Endpoint | Method | Description | Permission |
+|----------|--------|-------------|------------|
+| `POST /api/v1/expert/corrections/{id}` | Submit | Submit expert correction | `expert_correction:create` |
+| `POST /api/v1/expert/corrections/{id}/approve` | Approve | Approve correction (learns) | `expert_correction:approve` |
+| `GET /api/v1/expert/knowledge/statistics` | Stats | Knowledge learning stats | `audit_log:read` |
+
+### Monitoring
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /api/v1/health` | Health | System health check |
+| `GET /api/v1/monitoring/status` | Status | Service status |
+| `GET /api/v1/monitoring/alerts` | Alerts | Active alerts |
+
+## Supported Modules
+
+| Module | Description | Subtypes |
+|--------|-------------|----------|
+| `cpu` | CPU Core | - |
+| `l3_cache` | L3 Cache | - |
+| `ha` | Coherence Agent | agent, snoop_filter, directory |
+| `noc_router` | NoC Router | - |
+| `ddr_controller` | DDR Controller | - |
+| `hbm_controller` | HBM Controller | - |
+
+## User Roles
+
+| Role | Level | Description |
+|------|-------|-------------|
+| `super_admin` | 100 | Full system access |
+| `admin` | 80 | User & role management |
+| `expert` | 60 | Submit corrections & update knowledge |
+| `analyst` | 40 | Submit analysis requests |
+| `viewer` | 20 | Read-only access |
+
+**Default Admin Account:**
+- Username: `admin`
+- Password: `admin123`
+
+## Development
+
+### Run Tests
 
 ```bash
-# 克隆项目
-git clone <repo-url>
-cd chip_fault_agent
+# API tests
+pytest tests/test_api.py
 
-# 安装Python依赖
-pip install -r requirements.txt
+# Database tests
+pytest tests/test_database.py
+
+# Integration tests
+pytest tests/test_integration.py
 ```
 
-### 3. 配置环境变量
+### Code Quality
 
 ```bash
-# 复制环境变量模板
-cp .env.example .env
+# Format code
+black src/ frontend-v2/src/
 
-# 编辑.env文件，配置以下关键项：
-# - DATABASE_URL: PostgreSQL连接URL
-# - NEO4J_URI: Neo4j连接URI
-# - REDIS_URL: Redis连接URL
-# - JWT_SECRET_KEY: JWT签名密钥
-# - OPENAI_API_KEY: OpenAI API密钥（可选）
+# Type checking
+mypy src/
+
+# Linting
+flake8 src/
 ```
 
-### 4. 初始化数据库
+## Deployment
+
+### Production Deployment
 
 ```bash
-# 初始化数据库表结构
-python scripts/init_db.py
+# Build production images
+docker compose -f docker-compose.yml build
 
-# 初始化RBAC系统（创建默认角色、权限和管理员账户）
-python scripts/init_rbac.py
+# Export for offline deployment
+export-offline.bat
+
+# On target machine
+offline-import.bat
 ```
 
-### 5. 启动服务
+### Monitoring
 
 ```bash
-# 方式一：一键启动
-python scripts/start_all.py
+# View logs
+docker compose logs -f backend
 
-# 方式二：分别启动（需要两个终端）
-# 终端1 - API服务（端口8000）
-python run.py api
+# Check service health
+curl http://localhost:8889/api/v1/health
 
-# 终端2 - 前端服务（端口8501）
-python run.py frontend
+# View metrics
+docker compose ps
 ```
 
-### 6. 访问系统
+## Troubleshooting
 
-- **API文档**: http://localhost:8000/docs
-- **前端界面**: http://localhost:8501
-- **默认管理员账户**:
-  - 用户名: `admin`
-  - 密码: `admin123`
+### Common Issues
 
-## API文档
-
-### 认证接口
-
-| 接口 | 方法 | 描述 | 权限 |
-|------|------|------|------|
-| `POST /api/v1/auth/login` | 登录 | 获取访问令牌 | 公开 |
-| `POST /api/v1/auth/logout` | 登出 | 注销当前会话 | 已认证 |
-| `POST /api/v1/auth/refresh` | 刷新令牌 | 获取新的访问令牌 | 已认证 |
-| `GET /api/v1/auth/me` | 获取当前用户 | 获取当前用户信息 | 已认证 |
-| `POST /api/v1/auth/register` | 注册 | 创建新用户 | 公开 |
-
-### 分析接口
-
-| 接口 | 方法 | 描述 | 权限 |
-|------|------|------|------|
-| `POST /api/v1/analyze` | 提交分析 | 提交日志进行分析 | `analysis:create` |
-| `GET /api/v1/analysis/{id}` | 获取结果 | 获取分析结果 | `analysis:read` |
-| `GET /api/v1/analysis/{id}/report` | 生成报告 | 生成HTML报告 | `analysis:read` |
-| `GET /api/v1/health` | 健康检查 | 检查系统状态 | 公开 |
-| `GET /api/v1/modules` | 模块列表 | 获取支持的模块 | `analysis:read` |
-
-### 用户管理接口
-
-| 接口 | 方法 | 描述 | 权限 |
-|------|------|------|------|
-| `GET /api/v1/admin/users` | 用户列表 | 获取所有用户 | `user:read` |
-| `POST /api/v1/admin/users` | 创建用户 | 创建新用户 | `user:create` |
-| `PUT /api/v1/admin/users/{user_id}` | 更新用户 | 更新用户信息 | `user:update` |
-| `DELETE /api/v1/admin/users/{user_id}` | 删除用户 | 删除用户 | `user:delete` |
-| `POST /api/v1/admin/users/{user_id}/roles` | 分配角色 | 为用户分配角色 | `user:update` |
-
-### 角色管理接口
-
-| 接口 | 方法 | 描述 | 权限 |
-|------|------|------|------|
-| `GET /api/v1/admin/roles` | 角色列表 | 获取所有角色 | `role:read` |
-| `POST /api/v1/admin/roles` | 创建角色 | 创建新角色 | `role:create` |
-| `PUT /api/v1/admin/roles/{role_id}` | 更新角色 | 更新角色信息 | `role:update` |
-| `POST /api/v1/admin/roles/{role_id}/permissions` | 分配权限 | 为角色分配权限 | `role:update` |
-
-### 专家修正接口
-
-| 接口 | 方法 | 描述 | 权限 |
-|------|------|------|------|
-| `POST /api/v1/expert/corrections/{analysis_id}` | 提交修正 | 提交专家修正 | `expert_correction:create` |
-| `GET /api/v1/expert/corrections` | 修正列表 | 获取修正列表 | `expert_correction:create` |
-| `POST /api/v1/expert/corrections/{id}/approve` | 批准修正 | 批准专家修正 | `expert_correction:approve` |
-| `POST /api/v1/expert/corrections/{id}/reject` | 拒绝修正 | 拒绝专家修正 | `expert_correction:reject` |
-| `POST /api/v1/expert/assign/{analysis_id}` | 分配专家 | 分配专家处理任务 | `analysis:update` |
-| `GET /api/v1/expert/experts` | 专家列表 | 获取可用专家列表 | `user:read` |
-| `GET /api/v1/expert/knowledge/statistics` | 知识统计 | 获取知识学习统计 | `audit_log:read` |
-
-### 知识库接口
-
-| 接口 | 方法 | 描述 | 权限 |
-|------|------|------|------|
-| `GET /api/v1/cases` | 案例列表 | 获取历史案例 | `case:read` |
-| `POST /api/v1/cases` | 创建案例 | 创建新案例 | `case:create` |
-| `PUT /api/v1/cases/{case_id}` | 更新案例 | 更新案例信息 | `case:update` |
-| `GET /api/v1/rules` | 规则列表 | 获取推理规则 | `rule:read` |
-| `POST /api/v1/rules` | 创建规则 | 创建新规则 | `rule:create` |
-
-## 系统角色
-
-### 预定义角色
-
-| 角色名称 | 显示名称 | 描述 | 权限级别 |
-|----------|----------|------|----------|
-| `super_admin` | 超级管理员 | 系统最高权限，拥有所有操作权限 | 100 |
-| `admin` | 管理员 | 系统管理员，可以管理用户、角色和配置 | 80 |
-| `expert` | 专家 | 领域专家，可以进行专家修正和知识库更新 | 60 |
-| `analyst` | 分析师 | 普通分析师，可以提交分析请求和查看结果 | 40 |
-| `viewer` | 查看者 | 只读权限，只能查看分析结果 | 20 |
-
-### 权限说明
-
-系统权限格式：`resource:action`
-
-- **资源类型**: user, role, permission, analysis, case, rule, expert_correction, system_config, audit_log, report
-- **操作类型**: create, read, update, delete, approve, reject, export
-
-## 配置说明
-
-主要配置项（参见`.env.example`）：
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `DATABASE_URL` | PostgreSQL连接URL | - |
-| `NEO4J_URI` | Neo4j连接URI | bolt://localhost:7687 |
-| `REDIS_URL` | Redis连接URL | - |
-| `JWT_SECRET_KEY` | JWT签名密钥 | - |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | 访问令牌过期时间（分钟） | 30 |
-| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | 刷新令牌过期时间（天） | 7 |
-| `DEFAULT_CONFIDENCE_THRESHOLD` | 专家介入阈值 | 0.7 |
-| `OPENAI_API_KEY` | OpenAI API密钥 | - |
-| `ANTHROPIC_API_KEY` | Anthropic API密钥 | - |
-
-## 开发指南
-
-### 添加新模块类型
-
-1. 在`src/database/models.py`中添加模块类型定义
-2. 在`src/mcp/tools/`中实现对应的MCP工具
-3. 更新配置文件中的模块类型列表
-
-### 添加新的MCP工具
-
-参考`src/mcp/tools/log_parser.py`的实现：
-
-```python
-from mcp.server import Server
-from mcp.types import Tool
-
-app = Server("chip-fault-tools")
-
-@app.tool()
-async def your_tool_name(param1: str, param2: int):
-    """工具描述"""
-    # 实现逻辑
-    return {"result": "your_result"}
-```
-
-### 添加新的API端点
-
-1. 在`src/api/`下创建新的路由文件
-2. 使用认证装饰器保护端点：
-
-```python
-from fastapi import APIRouter, Depends
-from ..auth.decorators import require_auth, require_permission
-from ..auth.dependencies import get_current_user_required
-
-router = APIRouter()
-
-@router.post("/your-endpoint")
-@require_auth
-@require_permission("your_resource:your_action")
-async def your_endpoint(
-    current_user: User = Depends(get_current_user_required)
-):
-    # 实现逻辑
-    pass
-```
-
-## 模块类型
-
-系统支持以下SoC模块类型：
-
-| 模块类型 | 说明 | 子类型 |
-|----------|------|--------|
-| `cpu` | CPU核心 | - |
-| `l2_cache` | L2缓存（CPU私有） | - |
-| `l3_cache` | L3共享缓存 | - |
-| `ha` | 一致性代理 | agent / snoop_filter / directory |
-| `noc_router` | NoC路由器 | - |
-| `noc_endpoint` | NoC端点 | - |
-| `ddr_controller` | DDR控制器 | - |
-| `hbm_controller` | HBM控制器 | - |
-
-## 测试
-
+**1. BGE Model Loading Error**
 ```bash
-# 运行快速测试脚本
-python scripts/quick_test.py
+# Download BGE model manually
+python scripts/init_bge_model.py
 
-# 运行完整的系统验证
-python scripts/test_complete_system.py
-
-# 运行API测试
-python tests/test_api.py
-
-# 测试数据库连接
-python scripts/test_db.py
+# Or copy from cache
+python copy-bge-model.py
 ```
 
-## Docker部署
-
+**2. Database Connection Failed**
 ```bash
-# 构建镜像
-docker-compose build
+# Check PostgreSQL status
+docker compose logs postgres
 
-# 启动所有服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
+# Verify pgvector extension
+docker exec -it chip-fault-postgres psql -U postgres -d chip_analysis
+chip_analysis=# CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-## 故障排除
+**3. High Memory Usage**
+- BGE model requires ~4GB RAM
+- Reduce `EMBEDDING_DEVICE` to CPU if GPU unavailable
+- Increase Docker memory limit to 8GB+
 
-### 常见问题
+## Documentation
 
-1. **数据库连接失败**
-   - 检查PostgreSQL是否运行
-   - 验证DATABASE_URL配置是否正确
-   - 确保pgvector扩展已安装
+- [System Architecture](SYSTEM_V2_TECHNICAL_SPEC.md) - Complete technical specification
+- [Offline Deployment Guide](README_OFFLINE.md) - Air-gapped deployment
+- [BGE Embedding Guide](docs/BGE_EMBEDDING_GUIDE.md) - Local embedding model
+- [Docker Deployment](README_DOCKER_DEPLOY.md) - Container deployment
+- [Troubleshooting](TROUBLESHOOTING_WINDOWS.md) - Common issues and solutions
 
-2. **Neo4j连接失败**
-   - 检查Neo4j是否运行
-   - 验证NEO4J_URI配置是否正确
-   - 确认用户名密码正确
+## License
 
-3. **JWT令牌过期**
-   - 检查JWT_ACCESS_TOKEN_EXPIRE_MINUTES配置
-   - 使用refresh端点获取新令牌
+MIT License - see LICENSE file for details
 
-4. **权限不足**
-   - 确认用户具有所需角色
-   - 检查角色是否具有相应权限
-   - 联系管理员分配权限
+## Contributing
 
-## 许可证
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-[待添加]
+## Support
 
-## 贡献指南
+For issues and questions:
+- GitHub Issues: https://github.com/xpengch/chip-fault-agent/issues
+- Documentation: https://github.com/xpengch/chip-fault-agent/wiki
 
-[待添加]
+---
+
+**Built with ❤️ for chip failure analysis**
