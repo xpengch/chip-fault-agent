@@ -9,6 +9,31 @@ echo This script will automatically install
 echo Chip Fault AI Agent system and dependencies
 echo.
 
+REM Check winget availability
+winget --version >nul 2>&1
+if errorlevel 1 (
+    echo [Warning] winget is not available on this system
+    echo.
+    echo Auto-installation requires winget (Windows Package Manager)
+    echo.
+    echo Please install winget first:
+    echo   1. Open Microsoft Store
+    echo   2. Search for \"App Installer\"
+    echo   3. Click \"Get\" or \"Install\"
+    echo   4. Run this script again
+    echo.
+    echo Alternatively, manually install the required software:
+    echo   - Python 3.12+: https://www.python.org/downloads/
+    echo   - Git: https://github.com/git-for-windows/git/releases/latest
+    echo   - Docker Desktop: https://www.docker.com/products/docker-desktop
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [OK] winget is available
+echo.
+
 REM ============================================================
 REM Phase 1: Environment Detection & Auto Installation
 REM ============================================================
@@ -28,23 +53,22 @@ if errorlevel 1 (
     echo Installing Python using winget...
     echo.
 
-    if not exist "%TEMP%\chip_fault_installer" mkdir "%TEMP%\chip_fault_installer"
-
-    winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements >nul 2>&1
+    winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements --silent
     if errorlevel 1 (
         echo [Failed] winget installation failed
         echo.
-        echo Please manually download and install Python 3.12:
+        echo Please manually download and install Python:
         echo https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe
         echo.
-        echo Check "Add Python to PATH" during installation
+        echo During installation, CHECK \"Add Python to PATH\"
+        echo.
         pause
         exit /b 1
     )
 
     echo [Success] Python has been installed
     echo.
-    echo Please run this script again to continue
+    echo Please run this script again to continue installation
     pause
     exit /b 0
 )
@@ -62,19 +86,20 @@ if errorlevel 1 (
     echo Installing Git using winget...
     echo.
 
-    winget install Git.Git --accept-package-agreements --accept-source-agreements >nul 2>&1
+    winget install Git.Git --accept-package-agreements --accept-source-agreements --silent
     if errorlevel 1 (
         echo [Failed] winget installation failed
         echo.
         echo Please manually download and install Git:
         echo https://github.com/git-for-windows/git/releases/latest
+        echo.
         pause
         exit /b 1
     )
 
     echo [Success] Git has been installed
     echo.
-    echo Please run this script again to continue
+    echo Please run this script again to continue installation
     pause
     exit /b 0
 )
@@ -89,64 +114,35 @@ docker --version >nul 2>&1
 if errorlevel 1 (
     echo [Not Installed] Docker Desktop is not installed
     echo.
-    echo Automatically installing Docker Desktop...
+    echo Installing Docker Desktop using winget...
     echo This may take a few minutes...
     echo.
 
-    if not exist "%TEMP%\chip_fault_installer" mkdir "%TEMP%\chip_fault_installer"
-
-    if not exist "%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe" (
-        echo [Downloading] Downloading Docker Desktop installer...
+    winget install Docker.DockerDesktop --accept-package-agreements --accept-source-agreements --silent
+    if errorlevel 1 (
+        echo [Failed] winget installation failed
         echo.
-
-        powershell -Command "Invoke-WebRequest -Uri 'https://desktop.docker.com/win/main/amd64/Docker%%20Desktop%%20Installer.exe' -OutFile '%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe'"
-        if errorlevel 1 (
-            echo [Failed] Download failed
-            echo.
-            echo Trying winget installation...
-            winget install Docker.DockerDesktop --accept-package-agreements --accept-source-agreements >nul 2>&1
-            if errorlevel 1 (
-                echo [Failed] winget installation also failed
-                echo.
-                echo Please manually download Docker Desktop:
-                echo https://www.docker.com/products/docker-desktop
-                pause
-                exit /b 1
-            )
-
-            echo [Success] Docker Desktop installed via winget
-            echo.
-            echo ==========================================
-            echo   Docker Desktop Installation Complete
-            echo ==========================================
-            echo.
-            echo Important:
-            echo   1. Please restart your computer
-            echo   2. Start Docker Desktop
-            echo   3. Wait for Docker to fully start (tray icon turns green)
-            echo   4. Run this script again
-            echo.
-            pause
-            exit /b 0
-        )
-
-        echo [OK] Download complete
+        echo Please manually download Docker Desktop:
+        echo https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe
         echo.
+        echo After installation:
+        echo   1. Restart your computer
+        echo   2. Start Docker Desktop
+        echo   3. Wait for the tray icon to turn green
+        echo   4. Run this script again
+        echo.
+        pause
+        exit /b 1
     )
 
-    echo [Installing] Running Docker Desktop installer...
-    echo Please follow the installation wizard (usually just click OK)
-    echo.
-
-    "%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe"
-
+    echo [Success] Docker Desktop has been installed
     echo.
     echo ==========================================
     echo   Docker Desktop Installation Complete
     echo ==========================================
     echo.
     echo Important:
-    echo   1. Please restart your computer
+    echo   1. Restart your computer
     echo   2. Start Docker Desktop
     echo   3. Wait for Docker to fully start (tray icon turns green)
     echo   4. Run this script again
@@ -164,7 +160,8 @@ echo [4/4] Checking Docker Compose...
 docker compose version >nul 2>&1
 if errorlevel 1 (
     echo [Warning] Docker Compose not found
-    echo          Please make sure Docker Desktop is fully started
+    echo          Make sure Docker Desktop is running
+    echo.
     pause
     exit /b 1
 )
@@ -175,7 +172,7 @@ echo.
 
 echo ==========================================
 echo   Environment Check Complete!
-echo   All dependencies are ready
+echo   All dependencies ready
 echo ==========================================
 echo.
 
@@ -229,8 +226,7 @@ echo.
 REM Check BGE model
 echo [2/5] Checking BGE model...
 if not exist bge-model (
-    echo [Info] BGE model will be downloaded on first run (~2.4GB)
-    echo        To download now, run: download-bge.py
+    echo [Info] BGE model will download on first run (~2.4GB)
 ) else (
     echo [OK] BGE model exists
 )
@@ -246,9 +242,7 @@ if not exist .env (
         echo   Configure API Key
         echo ==========================================
         echo.
-        echo Please set your Anthropic API Key
-        echo This is required to run the system
-        echo.
+        echo Set your Anthropic API Key (required)
         echo Get it from: https://console.anthropic.com/
         echo.
 
@@ -256,33 +250,27 @@ if not exist .env (
 
         powershell -Command "(Get-Content .env) -replace 'ANTHROPIC_API_KEY=.*', 'ANTHROPIC_API_KEY=%API_KEY%' | Set-Content .env"
 
-        echo.
         echo [OK] API Key configured
         echo.
     ) else (
-        echo [Warning] .env.docker.template not found
-        echo          Creating basic .env file...
         echo ANTHROPIC_API_KEY= > .env
-        echo.
-        echo [Important] Please edit .env file and set API Key
+        echo [Important] Edit .env and set your API Key
         notepad .env
-        echo.
-        set /p CONTINUE="Press Enter after configuration..."
+        set /p CONTINUE="Press Enter when done..."
     )
 ) else (
-    echo [OK] .env configuration file exists
+    echo [OK] .env exists
 )
 echo.
 
 REM Build Docker images
 echo [4/5] Building Docker images...
-echo This may take 5-10 minutes, please wait...
+echo This takes 5-10 minutes...
 echo.
 
 docker compose build
 if errorlevel 1 (
-    echo [Warning] Build process had some warnings
-    echo          Check logs above for details
+    echo [Warning] Build had warnings, check logs above
 )
 
 echo [OK] Docker images built
@@ -293,7 +281,6 @@ echo [5/5] Starting services...
 docker compose up -d
 if errorlevel 1 (
     echo [Error] Failed to start services
-    echo          Please check if Docker is running
     pause
     exit /b 1
 )
@@ -301,33 +288,29 @@ if errorlevel 1 (
 echo [OK] All services started
 echo.
 
-REM Wait for services to be ready
-echo Waiting for services to start...
-echo     * PostgreSQL (database + vector search)
-echo     * Neo4j (knowledge graph)
-echo     * Redis (cache)
-echo     * Backend (API service)
-echo     * Frontend (Web interface)
+REM Wait for services
+echo Waiting for services...
+echo     PostgreSQL (database + vector)
+echo     Neo4j (knowledge graph)
+echo     Redis (cache)
+echo     Backend (API)
+echo     Frontend (Web)
 echo.
 
-REM Countdown
 for /l %%i in (30,-1,1) do (
-    <nul set /p "=   Waiting %%i seconds...^r"
+    <nul set /p "=   %%i seconds remaining...^r"
     ping 127.0.0.1 -n 2 >nul
 )
 echo.
 echo.
 
 REM Health check
-echo Checking service status...
 curl -s http://localhost:8889/api/v1/health >nul 2>&1
 if errorlevel 1 (
-    echo [Warning] Backend service may not be fully ready
-    echo          Check logs with: docker compose logs -f
-    echo.
-    echo Services may take longer to start, please try accessing later
+    echo [Warning] Backend may not be ready yet
+    echo          Check: docker compose logs -f
 ) else (
-    echo [OK] Backend service is ready
+    echo [OK] Backend is ready
 )
 echo.
 
@@ -339,39 +322,25 @@ echo ==========================================
 echo   Installation Complete!
 echo ==========================================
 echo.
-echo.
 echo    Access URLs:
-echo.
 echo      Frontend:  http://localhost:3000
 echo      Backend:   http://localhost:8889
 echo      API Docs:  http://localhost:8889/docs
 echo.
-echo.
-echo    Default Admin Account:
+echo    Default Admin:
 echo      Username: admin
 echo      Password: admin123
 echo.
-echo.
-echo    Common Commands:
-echo      View logs: docker compose logs -f
-echo      Stop:      docker compose down
-echo      Restart:   docker compose restart
-echo      Status:    docker compose ps
-echo.
-echo.
-echo    Documentation:
-echo      https://github.com/xpengch/chip-fault-agent
-echo.
+echo    Commands:
+echo      docker compose logs -f
+echo      docker compose down
+echo      docker compose restart
 echo.
 
-REM Optional: Open browser
-set /p OPEN_BROWSER="Open system in browser? (Y/N): "
+set /p OPEN_BROWSER="Open browser? (Y/N): "
 if /i "!OPEN_BROWSER!"=="Y" (
-    echo Opening browser...
     start http://localhost:3000
 )
 
-echo.
-echo Thank you for using Chip Fault AI System!
 echo.
 pause
