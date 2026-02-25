@@ -495,7 +495,8 @@ class ChipFaultWorkflow:
         raw_log: str,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        infer_threshold: float = 0.7
+        infer_threshold: float = 0.7,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         运行工作流
@@ -505,9 +506,12 @@ class ChipFaultWorkflow:
             session_id: 会话ID（可选）
             user_id: 用户ID（可选）
             infer_threshold: 推理阈值（默认0.7）
+            **kwargs: 其他参数（用于忽略不需要的参数）
         Returns:
             工作流执行结果
         """
+        if kwargs:
+            logger.warning(f"[Workflow] 收到额外参数: {kwargs}")
         logger.info(f"[Workflow] 开始执行工作流 - 芯片: {chip_model}")
 
         # 初始化状态

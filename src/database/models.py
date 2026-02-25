@@ -242,7 +242,7 @@ class AnalysisResult(Base):
     analysis_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     session_id: Mapped[str] = mapped_column(String(100), nullable=False)
     user_id: Mapped[Optional[str]] = mapped_column(String(50))
-    chip_model: Mapped[str] = mapped_column(String(50), ForeignKey("soc_chips.chip_model"))
+    chip_model: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("soc_chips.chip_model"), nullable=True)
 
     # 输入日志
     log_source: Mapped[Optional[str]] = mapped_column(String(255))
@@ -353,7 +353,8 @@ class ExpertCorrection(Base):
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     correction_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    analysis_id: Mapped[str] = mapped_column(String(50), ForeignKey("analysis_results.analysis_id"))
+    # 移除外键约束，允许在分析结果不存在时提交修正（多轮对话场景）
+    analysis_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 
     original_result: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)
     corrected_result: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -507,8 +508,33 @@ class AnalysisConflict(Base):
 try:
     from .rbac_models import AuditLog
 except ImportError:
-    # 如果rbac_models尚未导入，定义一个占位符
+    # 如果rbac_models尚未导入，定义一个占��符
     # 实际使用时会使用rbac_models中的完整定义
     class AuditLog:
         """占位符类 - 实际定义在rbac_models.py中"""
-        pass
+
+
+# ============================================
+# 系统告警表
+# ============================================
+class SystemAlert(Base):
+    """系统告警表 - 存储系统监控告警"""
+    __tablename__ = "system_alerts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alert_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    alert_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # info, warning, error, critical
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("idx_system_alerts_type", "alert_type"),
+        Index("idx_system_alerts_severity", "severity"),
+        Index("idx_system_alerts_created", "created_at"),
+        Index("idx_system_alerts_resolved", "resolved"),
+    )

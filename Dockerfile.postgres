@@ -1,0 +1,29 @@
+# Custom PostgreSQL image with pgvector support
+FROM postgres:16
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    postgresql-server-dev-16 \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build pgvector
+WORKDIR /tmp
+RUN git clone --depth 1 --branch v0.5.0 https://github.com/pgvector/pgvector.git
+WORKDIR /tmp/pgvector
+RUN make
+RUN make install
+
+# Cleanup
+WORKDIR /
+RUN rm -rf /tmp/pgvector
+RUN apt-get purge -y git build-essential postgresql-server-dev-16 libpq-dev
+RUN apt-get autoremove -y
+RUN rm -rf /var/lib/apt/lists/*
+
+# Switch back to postgres user
+USER postgres
+
+WORKDIR /var/lib/postgresql

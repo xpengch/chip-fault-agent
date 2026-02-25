@@ -333,3 +333,152 @@ class LLMTool:
 系统版本: 1.0.0
 生成时间: {analysis_data.get('analysis_timestamp', 'N/A')}
 """
+
+    async def generate_embedding(
+        self,
+        text: str,
+        model: str = None
+    ) -> List[float]:
+        """
+        生成文本的embedding向量（支持多后端）
+
+        Args:
+            text: 要生成embedding的文本
+            model: embedding模型名称（可选，默认使用配置）
+
+        Returns:
+            embedding向量（列表形式）
+
+        Raises:
+            RuntimeError: 当embedding服务不可用时
+        """
+        from src.config.settings import get_settings
+        settings = get_settings()
+
+        logger.info(f"[{self.name}] 生成embedding - 文本长度: {len(text)}, 后端: {settings.EMBEDDING_BACKEND}")
+
+        # 根据配置选择后端
+        backend = settings.EMBEDDING_BACKEND.lower()
+
+        if backend == "bge":
+            return await self._generate_bge_embedding(text, settings)
+        elif backend == "openai":
+            return await self._generate_openai_embedding(text, settings)
+        else:
+            # 默认使用BGE
+            return await self._generate_bge_embedding(text, settings)
+
+    async def _generate_bge_embedding(
+        self,
+        text: str,
+        settings
+    ) -> List[float]:
+        """使用BGE模型生成embedding（本地，带缓存）"""
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        from src.embedding import get_bge_model_manager
+
+        def _encode():
+            # 获取缓存的模型
+            model_manager = get_bge_model_manager()
+            model = model_manager.get_model(
+                model_name=settings.EMBEDDING_MODEL,
+                device=settings.EMBEDDING_DEVICE
+            )
+
+            # 生成embedding
+            embedding = model.encode(
+                text,
+                normalize_embeddings=True,  # 归一化向量
+                show_progress_bar=False
+            )
+
+            return embedding.tolist()
+
+        try:
+            # 在线程池中执行
+            loop = asyncio.get_event_loop()
+            embedding = await loop.run_in_executor(None, _encode)
+
+            logger.info(f"[{self.name}] BGE embedding生成成功 - 维度: {len(embedding)}")
+
+            return embedding
+
+        except Exception as e:
+            # 发送告警
+            from src.monitoring import get_alert_manager, AlertSeverity, AlertType
+            alert_manager = get_alert_manager()
+            await alert_manager.send_alert(
+                alert_type=AlertType.EMBEDDING_API_FAILED,
+                severity=AlertSeverity.CRITICAL,
+                title="BGE Embedding生成失败",
+                message=f"BGE模型生成embedding异常: {str(e)}",
+                details={
+                    "text_length": len(text),
+                    "model": settings.EMBEDDING_MODEL,
+                    "device": settings.EMBEDDING_DEVICE,
+                    "error": str(e),
+                    "impact": "案例匹配将无法使用语义相似度"
+                }
+            )
+            raise RuntimeError(f"BGE embedding生成失败: {str(e)}")
+
+    async def _generate_openai_embedding(
+        self,
+        text: str,
+        settings
+    ) -> List[float]:
+        """使用OpenAI生成embedding（API）"""
+        model = model or settings.OPENAI_EMBEDDING_MODEL
+
+        # 检查OpenAI客户端
+        client = self._get_openai_client()
+        if client is None:
+            # 发送告警
+            from src.monitoring import get_alert_manager, AlertSeverity, AlertType
+            alert_manager = get_alert_manager()
+            await alert_manager.send_alert(
+                alert_type=AlertType.EMBEDDING_API_FAILED,
+                severity=AlertSeverity.CRITICAL,
+                title="OpenAI Embedding API未配置",
+                message="OpenAI API密钥未配置，无法生成embedding向量",
+                details={
+                    "text_length": len(text),
+                    "model": model,
+                    "backend": "openai",
+                    "impact": "案例匹配将无法使用语义相似度"
+                }
+            )
+            raise RuntimeError("OpenAI客户端未初始化。请配置OPENAI_API_KEY或切换到BGE后端")
+
+        try:
+            # 使用OpenAI的embedding API
+            response = await client.embeddings.create(
+                model=model,
+                input=text
+            )
+
+            embedding = response.data[0].embedding
+            logger.info(f"[{self.name}] OpenAI embedding生成成功 - 维度: {len(embedding)}")
+
+            return embedding
+
+        except Exception as e:
+            # 发送告警
+            from src.monitoring import get_alert_manager, AlertSeverity, AlertType
+            alert_manager = get_alert_manager()
+            await alert_manager.send_alert(
+                alert_type=AlertType.EMBEDDING_API_FAILED,
+                severity=AlertSeverity.CRITICAL,
+                title="OpenAI Embedding API调用失败",
+                message=f"OpenAI embedding API调用异常: {str(e)}",
+                details={
+                    "text_length": len(text),
+                    "model": model,
+                    "backend": "openai",
+                    "error": str(e),
+                    "impact": "案例匹配将无法使用语义相似度"
+                }
+            )
+            raise RuntimeError(f"OpenAI embedding API调用失败: {str(e)}")
+

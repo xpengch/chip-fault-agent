@@ -5,7 +5,7 @@ Agent2 - 知识循环Agent
 
 from typing import Dict, List, Any, Optional
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 import hashlib
 
@@ -92,33 +92,109 @@ class KnowledgeLoopAgent:
 
         db_manager = get_db_manager()
         async with db_manager.get_session() as session:
-            # 检查是否已存在相似案例
-            error_codes = fault_features.get("error_codes", [])
-            if not error_codes:
-                return {"success": False, "message": "没有错误码，无法创建案例"}
+            # 获取修正后的结果
+            corrected = correction.get("corrected_result", {})
+            correction_reason = correction.get("correction_reason", "")
+            submitted_by = correction.get("submitted_by", "system")
 
-            # 基于错误码查找相似案例
-            primary_code = error_codes[0]
+            # 构建案例标识 - 优先使用失效域和模块组合作为标识
+            failure_domain = corrected.get("failure_domain") or original_result.get("failure_domain", "unknown")
+            failure_module = corrected.get("module") or original_result.get("module", "unknown")
+            case_identifier = f"{failure_domain}_{failure_module}"
+
+            # 检查是否已存在相似案例（基于失效域和模块）
             stmt = select(FailureCase).where(
                 and_(
                     FailureCase.chip_model == chip_model,
-                    FailureCase.error_codes.any(primary_code)  # Postgres array syntax
+                    FailureCase.failure_domain == failure_domain,
+                    FailureCase.module_type == failure_module,
+                    FailureCase.is_verified == True
                 )
             )
             result = await session.execute(stmt)
             existing_case = result.scalar_one_or_none()
 
-            # 获取修正后的结果
-            corrected = correction.get("corrected_result", {})
-            correction_reason = correction.get("correction_reason", "")
+            # 构建案例ID（使用失效域+模块+日期）
+            case_id = f"CASE_{case_identifier}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}".upper()
+
+            # 构建症状描述（包含原始日志信息）
+            raw_log = fault_features.get("raw_log", "")
+            error_codes = fault_features.get("error_codes", [])
+            modules = fault_features.get("modules", [])
+
+            # 构建完整的症状描述
+            symptoms_parts = []
+            if error_codes:
+                symptoms_parts.append(f"错误码: {', '.join(error_codes)}")
+            if modules:
+                symptoms_parts.append(f"相关模块: {', '.join(modules)}")
+            if raw_log:
+                symptoms_parts.append(f"原始日志: {raw_log[:500]}...")  # 限制长度
+
+            symptoms = "\n".join(symptoms_parts) if symptoms_parts else "专家修正案例"
+
+            # 构建完整的解决方案（包含修正原因）
+            solution_parts = [correction_reason]
+            if submitted_by and submitted_by != "anonymous":
+                solution_parts.append(f"\n提交专家: {submitted_by}")
+            solution = "\n".join(solution_parts)
+
+            # 生成embedding向量
+            embedding = None
+            try:
+                from ..mcp.tools.llm_tool import LLMTool
+                llm_tool = LLMTool()
+
+                # 构建用于embedding的文本
+                embedding_text = f"""
+失效域: {failure_domain}
+模块: {failure_module}
+根因: {corrected.get('root_cause', '')}
+症状: {symptoms}
+解决方案: {solution}
+""".strip()
+
+                embedding = await llm_tool.generate_embedding(embedding_text)
+                logger.info(f"[{self.name}] 案例embedding生成成功 - 维度: {len(embedding)}")
+            except Exception as e:
+                # 发送告警
+                from ..monitoring import get_alert_manager, AlertSeverity, AlertType
+                alert_manager = get_alert_manager()
+                await alert_manager.send_alert(
+                    alert_type=AlertType.EMBEDDING_API_FAILED,
+                    severity=AlertSeverity.WARNING,
+                    title="Golden案例embedding生成失败",
+                    message=f"无法为专家修正案例生成语义向量: {str(e)}",
+                    details={
+                        "case_id": case_id,
+                        "chip_model": chip_model,
+                        "failure_domain": failure_domain,
+                        "error": str(e),
+                        "impact": "该案例将无法通过语义相似度被匹配到"
+                    }
+                )
+                logger.warning(f"[{self.name}] 案例embedding生成失败，案例将创建但无向量索引: {str(e)}")
 
             if existing_case:
                 # 更新现有案例
+                existing_case.failure_domain = failure_domain
+                existing_case.module_type = failure_module
                 existing_case.root_cause = corrected.get("root_cause", existing_case.root_cause)
-                existing_case.solution = correction_reason
+                existing_case.root_cause_category = corrected.get("root_cause_category", existing_case.root_cause_category)
+                existing_case.failure_mode = corrected.get("failure_mode", existing_case.failure_mode)
+                existing_case.failure_mechanism = corrected.get("failure_mechanism", existing_case.failure_mechanism)
+                existing_case.solution = solution
+                existing_case.symptoms = symptoms
+                existing_case.error_codes = error_codes
                 existing_case.version += 1
                 existing_case.updated_at = datetime.utcnow()
                 existing_case.is_verified = True
+                existing_case.verified_by = submitted_by
+                existing_case.verified_at = datetime.utcnow()
+
+                # 更新embedding
+                if embedding:
+                    existing_case.embedding = embedding
 
                 await session.commit()
 
@@ -131,36 +207,37 @@ class KnowledgeLoopAgent:
                     "message": "案例更新成功"
                 }
             else:
-                # 创建新案例
-                case_id = f"CASE_{primary_code}_{datetime.utcnow().strftime('%Y%m%d')}".upper()
-
+                # 创建新案例（Golden Case）
                 new_case = FailureCase(
                     case_id=case_id,
                     chip_model=chip_model,
-                    failure_domain=corrected.get("failure_domain", original_result.get("failure_domain")),
+                    failure_domain=failure_domain,
+                    module_type=failure_module,
                     failure_mode=corrected.get("failure_mode", "unknown"),
                     failure_mechanism=corrected.get("failure_mechanism", "unknown"),
                     root_cause=corrected.get("root_cause", ""),
                     root_cause_category=corrected.get("root_cause_category", "unknown"),
-                    solution=correction_reason,
+                    solution=solution,
                     error_codes=error_codes,
-                    symptoms=fault_features.get("fault_description", ""),
+                    symptoms=symptoms,
                     is_verified=True,
-                    verified_by=correction.get("submitted_by", "system"),
+                    verified_by=submitted_by,
                     verified_at=datetime.utcnow(),
-                    sensitivity_level=1
+                    sensitivity_level=1,
+                    version=1,
+                    embedding=embedding
                 )
 
                 session.add(new_case)
                 await session.commit()
 
-                logger.info(f"[{self.name}] 创建新案例: {case_id}")
+                logger.info(f"[{self.name}] 创建新Golden案例: {case_id}")
 
                 return {
                     "success": True,
                     "action": "created",
                     "case_id": case_id,
-                    "message": "案例创建成功"
+                    "message": "Golden案例创建成功"
                 }
 
     async def _update_inference_rules(

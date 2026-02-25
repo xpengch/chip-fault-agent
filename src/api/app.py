@@ -10,6 +10,8 @@ from contextlib import asynccontextmanager
 from loguru import logger
 from datetime import datetime
 from typing import Optional
+from sqlalchemy import text
+import json
 import sys
 import traceback
 
@@ -29,15 +31,46 @@ from .auth_routes import router as auth_router
 from .admin_routes import router as admin_router
 from .expert_routes import router as expert_router
 from .multi_turn_routes import router as multi_turn_router
+from .monitoring_routes import router as monitoring_router
 from ..auth.middleware import AuditLogMiddleware, AuthenticationMiddleware
+from ..config.settings import get_settings
 
+# 获取配置
+settings = get_settings()
+
+# 确保日志目录存在
+import os
+log_dir = settings.LOG_DIR
+os.makedirs(log_dir, exist_ok=True)
 
 # 配置日志
 logger.remove()
+
+# 控制台输出
 logger.add(
     sys.stderr,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO"
+    level=settings.LOG_LEVEL
+)
+
+# 文件输出 - 所有日志
+logger.add(
+    os.path.join(log_dir, "chip_fault_agent_{time:YYYY-MM-DD}.log"),
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level=settings.LOG_LEVEL,
+    rotation=settings.LOG_ROTATION,
+    retention=settings.LOG_RETENTION,
+    encoding="utf-8"
+)
+
+# 文件输出 - 错误日志
+logger.add(
+    os.path.join(log_dir, "chip_fault_agent_error_{time:YYYY-MM-DD}.log"),
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="ERROR",
+    rotation=settings.LOG_ROTATION,
+    retention=settings.LOG_RETENTION,
+    encoding="utf-8"
 )
 
 
@@ -88,6 +121,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(expert_router)
 app.include_router(multi_turn_router)
+app.include_router(monitoring_router)
 
 
 # ==================== 全局异常处理 ====================
@@ -249,6 +283,7 @@ async def analyze_chip_fault(request: AnalyzeRequest):
         try:
             db_manager = get_db_manager()
             logger.info(f"[API] 获取到db_manager: {db_manager}")
+
             await db_manager.store_analysis_result(
                 session_id=result["session_id"],
                 chip_model=result["chip_model"],
@@ -257,10 +292,65 @@ async def analyze_chip_fault(request: AnalyzeRequest):
                 started_at=start_time
             )
 
+            # 存储初始日志作为第一条消息（用于多轮对话上下文）
+            try:
+                logger.info(f"[API] 准备存储初始日志 - session: {result['session_id']}, raw_log length: {len(request.raw_log)}")
+
+                # 使用独立的事务来存储初始消息
+                async with db_manager._session_factory() as session:
+                    # 检查是否已有消息（避免重复存储）
+                    check_result = await session.execute(
+                        text("SELECT COUNT(*) FROM analysis_messages WHERE session_id = :sid"),
+                        {"sid": result["session_id"]}
+                    )
+                    msg_count = check_result.scalar()
+                    logger.info(f"[API] 检查现有消息数量: {msg_count}")
+
+                    if msg_count == 0:
+                        # 存储初始日志作为第一条用户消息
+                        insert_sql = text("""
+                            INSERT INTO analysis_messages
+                            (session_id, message_type, sequence_number, content, content_type, is_correction, corrected_message_id, extracted_fields, created_at)
+                            VALUES (:sid, :mt, :sn, :content, :ct, :ic, :cmid, :ef, NOW())
+                            RETURNING message_id
+                        """)
+
+                        insert_params = {
+                            "sid": result["session_id"],
+                            "mt": "user_input",
+                            "sn": 1,
+                            "content": request.raw_log,
+                            "ct": "log",
+                            "ic": False,
+                            "cmid": None,
+                            "ef": json.dumps({"chip_model": request.chip_model})
+                        }
+
+                        logger.info(f"[API] 执行INSERT - params: {insert_params}")
+                        insert_result = await session.execute(insert_sql, insert_params)
+                        new_message_id = insert_result.scalar()
+                        logger.info(f"[API] INSERT返回message_id: {new_message_id}")
+
+                        await session.commit()
+                        logger.info(f"[API] COMMIT完成 - session: {result['session_id']}, content: {request.raw_log[:50]}...")
+
+                        # 验证存储成功
+                        verify_result = await session.execute(
+                            text("SELECT COUNT(*) FROM analysis_messages WHERE session_id = :sid"),
+                            {"sid": result["session_id"]}
+                        )
+                        verify_count = verify_result.scalar()
+                        logger.info(f"[API] 验证存储后消息数量: {verify_count}")
+                    else:
+                        logger.warning(f"[API] 跳过初始日志存储 - 已有 {msg_count} 条消息")
+
+            except Exception as msg_e:
+                logger.error(f"[API] 存储初始消息失败: {msg_e}")
+                logger.error(f"[API] Traceback: {traceback.format_exc()}")
+
             # 临时方案：直接用SQL更新infer_report（确保存储）
             if result.get("infer_report"):
                 try:
-                    from sqlalchemy import text
                     async with db_manager._session_factory() as session:
                         await session.execute(text("""
                             UPDATE analysis_results

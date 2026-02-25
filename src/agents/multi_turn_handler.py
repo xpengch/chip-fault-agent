@@ -159,6 +159,16 @@ class MultiTurnConversationHandler:
         """获取会话的累积上下文"""
         messages = await self.db.get_session_messages(session_id)
 
+        # 尝试从会话中获取chip_model
+        session_chip_model = None
+        if messages:
+            # 从第一个用户输入消息中提取chip_model
+            for msg in messages:
+                if msg.get("message_type") == "user_input" and msg.get("extracted_fields"):
+                    session_chip_model = msg.get("extracted_fields", {}).get("chip_model")
+                    if session_chip_model:
+                        break
+
         # 构建累积上下文
         context = {
             "session_id": session_id,
@@ -170,60 +180,64 @@ class MultiTurnConversationHandler:
                 "domains": []
             },
             "corrections": {},
-            "last_sequence": 0,
-            "chip_model": None
+            "last_sequence": 0
         }
+
+        # 只有在找到chip_model时才添加到context
+        if session_chip_model:
+            context["chip_model"] = session_chip_model
 
         # 跟踪已被纠正的消息ID
         corrected_message_ids = set()
 
         for msg in messages:
-            context["last_sequence"] = max(context["last_sequence"], msg.sequence_number)
+            context["last_sequence"] = max(context["last_sequence"], msg.get("sequence_number", 0))
 
             # 记录纠正关系（转换为字典以避免序列化问题）
-            if msg.is_correction and msg.corrected_message_id:
-                context["corrections"][msg.corrected_message_id] = {
-                    "message_id": msg.message_id,
-                    "message_type": msg.message_type,
-                    "sequence_number": msg.sequence_number,
-                    "content": msg.content,
-                    "content_type": msg.content_type,
-                    "is_correction": msg.is_correction,
-                    "corrected_message_id": msg.corrected_message_id,
-                    "extracted_fields": msg.extracted_fields or {}
+            if msg.get("is_correction") and msg.get("corrected_message_id"):
+                context["corrections"][msg["corrected_message_id"]] = {
+                    "message_id": msg["message_id"],
+                    "message_type": msg["message_type"],
+                    "sequence_number": msg["sequence_number"],
+                    "content": msg["content"],
+                    "content_type": msg["content_type"],
+                    "is_correction": msg["is_correction"],
+                    "corrected_message_id": msg["corrected_message_id"],
+                    "extracted_fields": msg.get("extracted_fields", {})
                 }
-                corrected_message_ids.add(msg.corrected_message_id)
+                corrected_message_ids.add(msg["corrected_message_id"])
                 continue  # 不将纠正信息本身添加到累积上下文
 
             # 跳过已��纠正的消息
-            if msg.message_id in corrected_message_ids:
+            if msg.get("message_id") in corrected_message_ids:
                 continue
 
             # 累积有效消息（转换为字典以避免序列化问题）
             context["messages"].append({
-                "message_id": msg.message_id,
-                "message_type": msg.message_type,
-                "sequence_number": msg.sequence_number,
-                "content": msg.content,
-                "content_type": msg.content_type,
-                "is_correction": msg.is_correction,
-                "corrected_message_id": msg.corrected_message_id,
-                "extracted_fields": msg.extracted_fields or {}
+                "message_id": msg["message_id"],
+                "message_type": msg["message_type"],
+                "sequence_number": msg["sequence_number"],
+                "content": msg["content"],
+                "content_type": msg["content_type"],
+                "is_correction": msg["is_correction"],
+                "corrected_message_id": msg["corrected_message_id"],
+                "extracted_fields": msg.get("extracted_fields", {})
             })
 
-            if msg.content_type == "log":
-                context["accumulated_logs"].append(msg.content)
+            # 累积所有用户输入内容（不仅是log类型）用于LLM分析
+            if msg["message_type"] in ["user_input", "correction"]:
+                context["accumulated_logs"].append(msg["content"])
 
             # 提取并累积特征
-            if msg.extracted_fields:
+            if msg.get("extracted_fields"):
                 self._merge_features(
                     context["accumulated_features"],
-                    msg.extracted_fields
+                    msg["extracted_fields"]
                 )
 
             # 如果有芯片型号，使用最新的
-            if msg.extracted_fields and "chip_model" in msg.extracted_fields:
-                context["chip_model"] = msg.extracted_fields["chip_model"]
+            if msg.get("extracted_fields") and "chip_model" in msg["extracted_fields"]:
+                context["chip_model"] = msg["extracted_fields"]["chip_model"]
 
         return context
 
@@ -255,8 +269,8 @@ class MultiTurnConversationHandler:
         content_type: str
     ) -> Dict[str, Any]:
         """添加新消息到上下文"""
-        if content_type == "log":
-            context["accumulated_logs"].append(content)
+        # 累积所有用户输入（不仅是log类型）用于LLM分析
+        context["accumulated_logs"].append(content)
 
         # 这里可以添加特征提取逻辑
         # extracted_features = await self._extract_features(content, content_type)
@@ -293,8 +307,55 @@ class MultiTurnConversationHandler:
         user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """基于累积上下文进行分析"""
-        # 1. 合并所有日志
+        # 1. 首先检查是否有已批准的专家修正
+        correction = await self.db.get_approved_correction(session_id)
+
+        if correction:
+            logger.info(f"[MultiTurnHandler] 使用专家修正结果 - correction_id: {correction['correction_id']}")
+
+            # 标记修正为已应用
+            await self.db.mark_correction_as_applied(correction['correction_id'])
+
+            # 构建分析结果（使用修正后的结果）
+            corrected_result = correction['corrected_result']
+
+            # 构建返回结果，格式与workflow.run()一致
+            return {
+                "success": True,
+                "session_id": session_id,
+                "chip_model": chip_model,
+                "final_root_cause": {
+                    "failure_domain": corrected_result.get("failure_domain"),
+                    "module": corrected_result.get("module"),
+                    "root_cause": corrected_result.get("root_cause"),
+                    "root_cause_category": corrected_result.get("root_cause_category"),
+                    "failure_mode": corrected_result.get("failure_mode"),
+                    "failure_mechanism": corrected_result.get("failure_mechanism"),
+                    "confidence": corrected_result.get("confidence", 1.0)  # 专家修正默认高置信度
+                },
+                "need_expert": False,  # 专家修正后不再需要专家介入
+                "infer_report": f"[专家修正结果]\n\n失效域: {corrected_result.get('failure_domain')}\n失效模块: {corrected_result.get('module')}\n根本原因: {corrected_result.get('root_cause')}\n\n修正说明: {correction.get('correction_reason', '')}",
+                "infer_trace": [],
+                "expert_correction": {
+                    "correction_id": correction['correction_id'],
+                    "approved_by": correction.get('approved_by'),
+                    "applied_at": datetime.utcnow().isoformat()
+                },
+                "tokens_used": 0,
+                "token_usage": None,
+                "error_message": None,
+                "completed": True,
+                "from_expert_correction": True  # 标记来源为专家修正
+            }
+
+        # 2. 没有专家修正，执行常规分析
+        # 合并所有日志
         combined_log = "\n".join(context["accumulated_logs"])
+
+        # 调试日志：记录累积的日志
+        logger.info(f"[MultiTurnHandler] _analyze_with_context - accumulated_logs count: {len(context['accumulated_logs'])}")
+        logger.info(f"[MultiTurnHandler] _analyze_with_context - combined_log length: {len(combined_log)}")
+        logger.info(f"[MultiTurnHandler] _analyze_with_context - combined_log preview: {combined_log[:200]}...")
 
         # 如果没有日志，使用原始输入
         if not combined_log:
@@ -304,7 +365,7 @@ class MultiTurnConversationHandler:
                 # 兼容字典格式和SQLAlchemy对象格式
                 combined_log = last_message.get("content") if isinstance(last_message, dict) else last_message.content
 
-        # 2. 调用工作流分析
+        # 3. 调用工作流分析
         workflow = get_workflow()
         result = await workflow.run(
             chip_model=chip_model,
@@ -354,7 +415,6 @@ class MultiTurnConversationHandler:
             }
 
     async def _save_snapshot(
-        print("[DEBUG] _save_snapshot CALLED with latest code!!!")
         self,
         session_id: str,
         message_id: int,
@@ -362,6 +422,7 @@ class MultiTurnConversationHandler:
         analysis_result: Dict[str, Any]
     ) -> None:
         """保存分析快照"""
+        print("[DEBUG] _save_snapshot CALLED with latest code!!!")
 
         import json
         print(f"[DEBUG] _save_snapshot called with message_id={message_id}")
@@ -421,14 +482,14 @@ class MultiTurnConversationHandler:
             else:
                 # SQLAlchemy对象，需要转换
                 serializable_messages.append({
-                    "message_id": msg.message_id,
-                    "message_type": msg.message_type,
-                    "sequence_number": msg.sequence_number,
-                    "content": msg.content,
-                    "content_type": msg.content_type,
-                    "is_correction": msg.is_correction,
-                    "corrected_message_id": msg.corrected_message_id,
-                    "extracted_fields": msg.extracted_fields or {}
+                    "message_id": msg["message_id"],
+                    "message_type": msg["message_type"],
+                    "sequence_number": msg["sequence_number"],
+                    "content": msg["content"],
+                    "content_type": msg["content_type"],
+                    "is_correction": msg["is_correction"],
+                    "corrected_message_id": msg.get("corrected_message_id"),
+                    "extracted_fields": msg.get("extracted_fields", {})
                 })
 
         # 将corrections字典中的SQLAlchemy对象也转换为字典
@@ -569,6 +630,17 @@ class MultiTurnConversationHandler:
         user_message_count: int
     ) -> str:
         """生成系统响应"""
+        # 检查是否来自专家修正
+        is_from_expert = analysis_result.get("from_expert_correction", False)
+
+        if is_from_expert:
+            # 专家修正结果响应
+            expert_info = analysis_result.get("expert_correction", {})
+            correction_id = expert_info.get("correction_id", "")
+            final_root_cause = analysis_result.get("final_root_cause", {})
+            logger.info(f"[MultiTurnHandler] 使用专家修正结果 - correction_id: {correction_id}")
+            return f"✅ 已应用专家修正结果（修正ID: {correction_id[:12]}...）\n\n失效域: {final_root_cause.get('failure_domain')}\n失效模块: {final_root_cause.get('module')}\n根本原因: {final_root_cause.get('root_cause')}\n\n专家修正结果置信度100%，不再需要重新分析。如有其他问题，请继续提供。"
+
         # 基于分析结果生成对话式响应
         need_expert = analysis_result.get("need_expert", False)
         confidence = analysis_result.get("final_root_cause", {}).get("confidence", 0)
@@ -606,20 +678,7 @@ class MultiTurnConversationHandler:
         return {
             "success": True,
             "session_id": session_id,
-            "messages": [
-                {
-                    "message_id": msg.message_id,
-                    "message_type": msg.message_type,
-                    "sequence_number": msg.sequence_number,
-                    "content": msg.content,
-                    "content_type": msg.content_type,
-                    "created_at": msg.created_at.isoformat(),
-                    "is_correction": msg.is_correction,
-                    "corrected_message_id": msg.corrected_message_id,
-                    "extracted_fields": msg.extracted_fields
-                }
-                for msg in messages
-            ],
+            "messages": messages,  # messages is already a list of dicts from get_session_messages
             "current_analysis": latest_snapshot["analysis_result"] if latest_snapshot else None,
             "total_messages": len(messages)
         }

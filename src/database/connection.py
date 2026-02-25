@@ -4,6 +4,7 @@
 import traceback
 from typing import AsyncGenerator, Dict, Any, Optional
 from datetime import datetime
+from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
@@ -94,6 +95,7 @@ class DatabaseManager:
         """获取会话工厂"""
         return self._session_factory
 
+    @asynccontextmanager
     async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
         """获取数据库会话（上下文管理器）"""
         async with self._session_factory() as session:
@@ -538,7 +540,6 @@ class DatabaseManager:
                         "is_correction": msg.is_correction,
                         "corrected_message_id": msg.corrected_message_id,
                         "extracted_fields": msg.extracted_fields or {},
-                        "user_id": msg.user_id,
                         "created_at": msg.created_at.isoformat() if msg.created_at else None
                     }
                     for msg in messages
@@ -595,6 +596,71 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"[DatabaseManager] 获取最新快照失败: {str(e)}")
             return None
+
+    async def get_approved_correction(
+        self,
+        session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """获取会话的已批准但未应用的专家修正"""
+        from src.database.models import ExpertCorrection
+
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(ExpertCorrection)
+                    .where(
+                        ExpertCorrection.analysis_id == session_id,
+                        ExpertCorrection.approval_status == "approved",
+                        ExpertCorrection.is_applied == False
+                    )
+                    .order_by(ExpertCorrection.approved_at.desc())
+                    .limit(1)
+                )
+                correction = result.scalar_one_or_none()
+
+                if correction:
+                    return {
+                        "correction_id": correction.correction_id,
+                        "analysis_id": correction.analysis_id,
+                        "original_result": correction.original_result,
+                        "corrected_result": correction.corrected_result,
+                        "correction_reason": correction.correction_reason,
+                        "submitted_by": correction.submitted_by,
+                        "approved_by": correction.approved_by,
+                        "approval_status": correction.approval_status,
+                        "is_applied": correction.is_applied,
+                        "submitted_at": correction.submitted_at.isoformat() if correction.submitted_at else None,
+                        "approved_at": correction.approved_at.isoformat() if correction.approved_at else None
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"[DatabaseManager] 获取专家修正失败: {str(e)}")
+            return None
+
+    async def mark_correction_as_applied(
+        self,
+        correction_id: str
+    ) -> bool:
+        """标记专家修正为已应用"""
+        from src.database.models import ExpertCorrection
+
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(ExpertCorrection)
+                    .where(ExpertCorrection.correction_id == correction_id)
+                )
+                correction = result.scalar_one_or_none()
+
+                if correction:
+                    correction.is_applied = True
+                    await session.commit()
+                    logger.info(f"[DatabaseManager] 标记修正为已应用: {correction_id}")
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"[DatabaseManager] 标记修正为已应用失败: {str(e)}")
+            return False
 
 
 # ============================================

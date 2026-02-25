@@ -107,3 +107,24 @@ scripts/temp_*.py
 scripts/test_*.py
 scripts/check_*.py
 scripts/quick_*.py
+
+# Offline deployment packages (too large for GitHub)
+offline-package/
+offline-package-complete/
+*.zip
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+
+# Docker images (too large)
+docker-images/
+
+# BGE model cache (too large)
+bge-model/
+
+# Nul file (Windows temp)
+nul
+
+# Baidu Yun upload config
+*.baiduyun.uploading.cfg

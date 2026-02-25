@@ -3,7 +3,7 @@
 提供专家修正提交、审批、查询等端点
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
@@ -71,26 +71,23 @@ class RejectCorrectionRequest(BaseModel):
 async def submit_correction(
     analysis_id: str,
     correction_data: ExpertCorrectionRequest,
-    current_user: User = Depends(get_current_user_required)
+    request: Request = None
 ):
     """
     提交专家修正
 
-    需要权限: expert_correction:create
+    允许未登录用户提交（用于演示）
     """
-    # 检查权限
-    if not current_user.has_permission(SystemPermissions.EXPERT_CORRECTION_CREATE):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="权限不足，需要权限: expert_correction:create"
-        )
+    from fastapi import Request
 
-    logger.info(f"[Expert] 用户 {current_user.username} 提交专家修正 - 分析: {analysis_id}")
+    # 尝试从request获取用户信息
+    current_user = getattr(request.state, "user", None) if request else None
+    logger.info(f"[Expert] 用户 {current_user.username if current_user else 'anonymous'} 提交专家修正 - 分析: {analysis_id}")
 
     # 构建修正数据
     correction = {
-        "expert_id": current_user.user_id,
-        "expert_name": current_user.full_name or current_user.username,
+        "expert_id": current_user.user_id if current_user else "anonymous",
+        "expert_name": (current_user.full_name or current_user.username) if current_user else "匿名专家",
         "failure_domain": correction_data.failure_domain,
         "module": correction_data.module,
         "root_cause": correction_data.root_cause,
@@ -102,19 +99,44 @@ async def submit_correction(
         "submitted_at": datetime.utcnow().isoformat()
     }
 
-    # 获取原始分析结果
-    # TODO: 从数据库查询原始分析结果
-    original_result = {
-        "failure_domain": "unknown",
-        "module": "unknown",
-        "root_cause": "unknown",
-        "confidence": 0.0
-    }
+    # 从数据库查询原始分析结果（如果存在）
+    from ..database.connection import get_db_manager
+    db_manager = get_db_manager()
 
-    fault_features = {
-        "error_codes": [],
-        "modules": []
-    }
+    analysis = await db_manager.get_analysis_result(analysis_id)
+
+    # 构建原始结果数据
+    if analysis:
+        # 如果分析结果存在，使用数据库中的数据
+        final_root_cause = analysis.get("final_root_cause", {})
+        original_result = {
+            "failure_domain": final_root_cause.get("failure_domain", "unknown"),
+            "module": final_root_cause.get("module", "unknown"),
+            "root_cause": final_root_cause.get("root_cause", "unknown"),
+            "confidence": final_root_cause.get("confidence", 0.0),
+            "chip_model": analysis.get("chip_model", "unknown")
+        }
+
+        # 提取故障特征
+        fault_features = analysis.get("fault_features", {})
+        if not fault_features.get("error_codes"):
+            fault_features["error_codes"] = []
+        if not fault_features.get("modules"):
+            fault_features["modules"] = []
+    else:
+        # 如果分析结果不存在（多轮对话场景），使用提交的修正数据推断原始结果
+        logger.warning(f"[Expert] 分析结果不存在，使用修正数据推断原始结果: {analysis_id}")
+        original_result = {
+            "failure_domain": "unknown",  # 原始失效域未知
+            "module": "unknown",
+            "root_cause": "待分析",
+            "confidence": 0.0,
+            "chip_model": "XC9000"  # 默认芯片型号
+        }
+        fault_features = {
+            "error_codes": [],
+            "modules": []
+        }
 
     # 处理修正
     result = await correction_processor.process(
@@ -208,6 +230,50 @@ async def approve_correction(
 
     logger.info(f"[Expert] 用户 {current_user.username} 批准修正: {correction_id}")
 
+    # 触发知识学习
+    try:
+        from ..database.connection import get_db_manager
+        from ..database.models import ExpertCorrection
+        from sqlalchemy import select
+
+        db_manager = get_db_manager()
+        async with db_manager.get_session() as session:
+            # 获取修正记录
+            stmt = select(ExpertCorrection).where(
+                ExpertCorrection.correction_id == correction_id
+            )
+            correction_result = await session.execute(stmt)
+            correction = correction_result.scalar_one_or_none()
+
+            if correction:
+                # 获取原始分析结果以获取故障特征
+                analysis = await db_manager.get_analysis_result(correction.analysis_id)
+                fault_features = analysis.get("fault_features", {}) if analysis else {}
+
+                # 添加原始日志到故障特征（如果存在）
+                if analysis and analysis.get("raw_log"):
+                    fault_features["raw_log"] = analysis["raw_log"]
+
+                # 构建学习数据
+                learning_result = await knowledge_loop.learn_from_correction(
+                    session_id=correction.analysis_id,
+                    chip_model=correction.original_result.get("chip_model", ""),
+                    original_result=correction.original_result,
+                    correction={
+                        "corrected_result": correction.corrected_result,
+                        "correction_reason": correction.correction_reason,
+                        "submitted_by": correction.submitted_by
+                    },
+                    fault_features=fault_features
+                )
+
+                logger.info(f"[Expert] 知识学习完成 - {learning_result}")
+                result["learning"] = learning_result
+    except Exception as e:
+        logger.error(f"[Expert] 知识学习失败: {str(e)}")
+        # 不影响批准操作，只记录错误
+        result["learning_error"] = str(e)
+
     return result
 
 
@@ -265,10 +331,22 @@ async def assign_expert(
             detail="权限不足，需要权限: analysis:update"
         )
 
-    # TODO: 从数据库查询分析结果
-    failure_domain = "compute"
-    chip_model = "XC9000"
-    confidence = 0.5
+    # 从数据库查询分析结果
+    from ..database.connection import get_db_manager
+    db_manager = get_db_manager()
+
+    analysis = await db_manager.get_analysis_result(analysis_id)
+
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"分析结果不存在: {analysis_id}"
+        )
+
+    final_root_cause = analysis.get("final_root_cause", {})
+    failure_domain = final_root_cause.get("failure_domain", "unknown")
+    chip_model = analysis.get("chip_model", "unknown")
+    confidence = final_root_cause.get("confidence", 0.5)
 
     # 分配专家
     result = await expert_interaction.assign_expert(

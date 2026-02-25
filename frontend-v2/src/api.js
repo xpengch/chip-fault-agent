@@ -186,6 +186,290 @@ export const api = {
     } catch (error) {
       return { success: false, data: [] };
     }
+  },
+
+  // ==================== 多轮对话 API ====================
+
+  // 添加消息到会话
+  async addMessage(sessionId, content, contentType = 'text', correctionTarget = null, chipModel = null) {
+    try {
+      const payload = {
+        content: content,
+        content_type: contentType,
+      };
+      if (chipModel) payload.chip_model = chipModel;
+      if (correctionTarget) payload.correction_target = correctionTarget;
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/analysis/${sessionId}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // 缓存分析结果
+        if (data.success && data.analysis_result?.session_id) {
+          analysisCache.set(data.analysis_result.session_id, data.analysis_result);
+        }
+        return data;
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.detail || '添加消息失败' };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  // 获取会话对话历史
+  async getConversationHistory(sessionId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/analysis/${sessionId}/messages`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { success: false, messages: [], error: '获取对话历史失败' };
+      }
+    } catch (error) {
+      return { success: false, messages: [], error: error.message };
+    }
+  },
+
+  // 纠正之前的信息
+  async correctInformation(sessionId, targetMessageId, correctedContent, reason = null) {
+    try {
+      const payload = {
+        target_message_id: targetMessageId,
+        corrected_content: correctedContent,
+      };
+      if (reason) payload.reason = reason;
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/analysis/${sessionId}/correct`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.detail || '纠正信息失败' };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  // 获取分析时间线
+  async getTimeline(sessionId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/analysis/${sessionId}/timeline`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        return { success: true, timeline: [], total_entries: 0 };
+      }
+    } catch (error) {
+      return { success: true, timeline: [], total_entries: 0 };
+    }
+  },
+
+  // 回滚到之前的状态
+  async rollbackToMessage(sessionId, messageSequence) {
+    try {
+      const payload = {
+        message_sequence: messageSequence,
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/analysis/${sessionId}/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return { success: false, error: error.detail || '回滚失败' };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  // ==================== 专家修正 API ====================
+
+  /**
+   * 提交专家修正
+   * @param {string} analysisId - 分析ID/会话ID
+   * @param {object} correctionData - 修正数据
+   * @param {string} correctionData.failure_domain - 失效域
+   * @param {string} correctionData.module - 失效模块
+   * @param {string} correctionData.root_cause - 根因
+   * @param {number} correctionData.confidence - 置信度 (0-1)
+   * @param {string} correctionData.correction_reason - 修正原因
+   */
+  async submitExpertCorrection(analysisId, correctionData) {
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/expert/corrections/${analysisId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: JSON.stringify(correctionData)
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.detail || error.message || '提交修正失败'
+        };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * 获取专家修正列表
+   * @param {string} status - 筛选状态 (pending/approved/rejected)
+   * @param {number} skip - 跳过记录数
+   * @param {number} limit - 返回记录数
+   */
+  async getExpertCorrections(status = null, skip = 0, limit = 50) {
+    const token = localStorage.getItem('access_token');
+    let url = `${API_BASE_URL}/api/v1/expert/corrections?skip=${skip}&limit=${limit}`;
+    if (status) url += `&status=${status}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.detail || error.message || '获取修正列表失败'
+        };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * 批准专家修正
+   * @param {string} correctionId - 修正ID
+   * @param {string} comments - 批准意见 (可选)
+   */
+  async approveExpertCorrection(correctionId, comments = null) {
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/expert/corrections/${correctionId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        ...(comments && { body: JSON.stringify({ comments }) })
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.detail || error.message || '批准修正失败'
+        };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * 拒绝专家修正
+   * @param {string} correctionId - 修正ID
+   * @param {string} reason - 拒绝原因
+   */
+  async rejectExpertCorrection(correctionId, reason) {
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/expert/corrections/${correctionId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: JSON.stringify({ reason })
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.detail || error.message || '拒绝修正失败'
+        };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
+  /**
+   * 获取知识学习统计
+   */
+  async getKnowledgeStatistics() {
+    const token = localStorage.getItem('access_token');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/expert/knowledge/statistics`, {
+        method: 'GET',
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      });
+
+      if (response.ok) {
+        return await response.json();
+      } else {
+        const error = await response.json();
+        return {
+          success: false,
+          error: error.detail || error.message || '获取统计失败'
+        };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
   }
 };
 

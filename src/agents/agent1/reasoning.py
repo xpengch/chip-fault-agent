@@ -269,8 +269,8 @@ class ReasoningAgent:
             from src.mcp.server import get_mcp_server
             mcp_server = get_mcp_server()
 
-            # 生成特征向量（简化版本，实际应使用embedding模型）
-            feature_vector = self._generate_feature_vector(features)
+            # 生成特征向量（使用真实embedding模型）
+            feature_vector = await self._generate_feature_vector(features)
 
             # 调用pgvector搜索工具
             search_result = await mcp_server.call_tool(
@@ -482,28 +482,57 @@ class ReasoningAgent:
         # 确保置信度在合理范围内
         return round(max(0.0, min(base_confidence, 0.95)), 4)
 
-    def _generate_feature_vector(self, features: Dict[str, Any]) -> List[float]:
-        """生成特征向量（简化版本）
+    async def _generate_feature_vector(self, features: Dict[str, Any]) -> List[float]:
+        """生成特征向量（使用真实embedding）"""
+        from src.mcp.tools.llm_tool import LLMTool
 
-        Note: 实际实现应使用sentence-transformers或类似模型
-        这里提供一个基于规则编码的简化版本
-        """
-        import hashlib
-        import json
+        # 构建用于embedding的文本描述
+        text_parts = []
 
-        # 构建特征字符串
-        feature_str = json.dumps(features, sort_keys=True)
+        # 添加错误码
+        error_codes = features.get("error_codes", [])
+        if error_codes:
+            text_parts.append(f"错误码: {', '.join(error_codes)}")
 
-        # 生成哈希（简化向量）
-        hash_val = hashlib.sha256(feature_str.encode()).digest()
+        # 添加模块信息
+        modules = features.get("modules", [])
+        if modules:
+            text_parts.append(f"相关模块: {', '.join(modules)}")
 
-        # 转换为384维向量（简化：用哈希值填充）
-        vector = []
-        for i in range(384):
-            if i < len(hash_val):
-                # 使用字节值归一化到[0,1]
-                vector.append(hash_val[i] / 255.0)
-            else:
-                vector.append(0.0)
+        # 添加故障描述
+        fault_desc = features.get("fault_description", "")
+        if fault_desc:
+            text_parts.append(f"故障描述: {fault_desc}")
 
-        return vector
+        # 添加原始日志（截断）
+        raw_log = features.get("raw_log", "")
+        if raw_log:
+            text_parts.append(f"日志: {raw_log[:1000]}")  # 限制长度
+
+        # 组合成完整的文本
+        feature_text = "\n".join(text_parts) if text_parts else "未知故障"
+
+        logger.info(f"[ReasoningAgent] 生成特征向量 - 文本长度: {len(feature_text)}")
+
+        try:
+            # 使用LLMTool生成embedding
+            llm_tool = LLMTool()
+            embedding = await llm_tool.generate_embedding(feature_text)
+            logger.info(f"[ReasoningAgent] 特征向量生成成功 - 维度: {len(embedding)}")
+            return embedding
+        except Exception as e:
+            # 发送告警并重新抛出异常
+            from src.monitoring import get_alert_manager, AlertSeverity, AlertType
+            alert_manager = get_alert_manager()
+            await alert_manager.send_alert(
+                alert_type=AlertType.VECTOR_SEARCH_FAILED,
+                severity=AlertSeverity.ERROR,
+                title="特征向量生成失败",
+                message=f"无法为故障特征生成语义向量: {str(e)}",
+                details={
+                    "feature_text_length": len(feature_text),
+                    "error": str(e),
+                    "impact": "案例匹配功能将不可用"
+                }
+            )
+            raise RuntimeError(f"特征向量生成失败: {str(e)}")

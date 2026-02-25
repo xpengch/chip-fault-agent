@@ -75,12 +75,20 @@ class Settings(BaseSettings):
     # ============================================
     # 向量嵌入配置
     # ============================================
-    EMBEDDING_MODEL: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        description="嵌入模型"
+    EMBEDDING_BACKEND: str = Field(
+        default="bge",
+        description="Embedding后端: openai, bge"
     )
-    EMBEDDING_DEVICE: str = Field(default="cpu", description="嵌入设备")
-    EMBEDDING_DIMENSIONS: int = Field(default=384, description="嵌入维度")
+    EMBEDDING_MODEL: str = Field(
+        default="BAAI/bge-large-zh-v1.5",
+        description="BGE模型名称 (BAAI/bge-large-zh-v1.5, BAAI/bge-base-zh-v1.5)"
+    )
+    EMBEDDING_DEVICE: str = Field(default="cpu", description="BGE推理设备: cpu, cuda, mps")
+    EMBEDDING_DIMENSIONS: int = Field(default=1024, description="嵌入维度 (bge-large: 1024, bge-base: 768)")
+    OPENAI_EMBEDDING_MODEL: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding模型 (当backend=openai时使用)"
+    )
 
     # ============================================
     # 分析配置
