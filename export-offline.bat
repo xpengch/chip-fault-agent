@@ -22,19 +22,25 @@ echo [2/5] Exporting Docker images...
 echo     This may take a while...
 echo.
 
-echo     Building and exporting PostgreSQL with pgvector...
-docker compose build postgres
-docker save chip-fault-postgres -o %PACKAGE_DIR%\docker-images\postgres.tar
-echo     [-] PostgreSQL with pgvector
+echo     [-] Pulling and exporting base images...
+docker pull postgres:16
+docker save postgres:16 -o %PACKAGE_DIR%\docker-images\postgres-base.tar
 
+docker pull node:20-alpine
+docker save node:20-alpine -o %PACKAGE_DIR%\docker-images\node-alpine.tar
+
+docker pull nginx:alpine
+docker save nginx:alpine -o %PACKAGE_DIR%\docker-images\nginx-alpine.tar
+
+echo     [-] Pulling required service images...
+docker pull neo4j:5.24-community
 docker save neo4j:5.24-community -o %PACKAGE_DIR%\docker-images\neo4j.tar
-echo     [-] Neo4j
 
+docker pull redis:7-alpine
 docker save redis:7-alpine -o %PACKAGE_DIR%\docker-images\redis.tar
-echo     [-] Redis
 
+docker pull python:3.12-slim
 docker save python:3.12-slim -o %PACKAGE_DIR%\docker-images\python-base.tar
-echo     [-] Python base
 
 echo [OK] Docker images exported
 echo.
