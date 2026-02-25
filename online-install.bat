@@ -94,54 +94,72 @@ docker --version >nul 2>&1
 if errorlevel 1 (
     echo [未安装] Docker Desktop 未安装
     echo.
-    echo Docker Desktop 是运行本系统必需的
+    echo 正在自动安装 Docker Desktop...
+    echo 这可能需要几分钟时间，请耐心等待...
     echo.
 
-    set /p INSTALL_DOCKER="是否自动安装 Docker Desktop? (Y/N): "
-    if /i "!INSTALL_DOCKER!"=="Y" (
-        echo.
-        echo 正在下载 Docker Desktop...
-        echo 这可能需要几分钟时间...
+    REM 创建临时目录
+    if not exist "%TEMP%\chip_fault_installer" mkdir "%TEMP%\chip_fault_installer"
+
+    REM 下载 Docker Desktop
+    if not exist "%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe" (
+        echo [下载中] 正在从网络下载 Docker Desktop 安装程序...
         echo.
 
-        if not exist "%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe" (
-            echo 正在从网络下载...
-            powershell -Command "Invoke-WebRequest -Uri 'https://desktop.docker.com/win/main/amd64/Docker%%20Desktop%%20Installer.exe' -OutFile '%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe'"
+        powershell -Command "Invoke-WebRequest -Uri 'https://desktop.docker.com/win/main/amd64/Docker%%20Desktop%%20Installer.exe' -OutFile '%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe'"
+        if errorlevel 1 (
+            echo [失败] 网络下载失败
+            echo.
+            echo 尝试使用 winget 安装...
+            winget install Docker.DockerDesktop --accept-package-agreements --accept-source-agreements >nul 2>&1
             if errorlevel 1 (
-                echo [失败] 下载失败
+                echo [失败] winget 安装也失败
                 echo.
                 echo 请手动下载 Docker Desktop:
                 echo https://www.docker.com/products/docker-desktop
                 pause
                 exit /b 1
             )
+
+            echo [成功] Docker Desktop 已通过 winget 安装
+            echo.
+            echo ==========================================
+            echo   Docker Desktop 安装完成
+            echo ==========================================
+            echo.
+            echo 重要提示:
+            echo   1. 请重启计算机
+            echo   2. 启动 Docker Desktop
+            echo   3. 等待 Docker 完全启动（托盘图标变绿）
+            echo   4. 重新运行本脚本
+            echo.
+            pause
+            exit /b 0
         )
 
-        echo 正在安装 Docker Desktop...
-        echo 请按照安装向导完成安装
+        echo [OK] 下载完成
         echo.
-        "%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe"
-
-        echo.
-        echo ==========================================
-        echo   Docker Desktop 安装完成
-        echo ==========================================
-        echo.
-        echo 重要提示:
-        echo   1. 请重启计算机
-        echo   2. 启动 Docker Desktop
-        echo   3. 等待 Docker 完全启动（托盘图标变绿）
-        echo   4. 重新运行本脚本
-        echo.
-        pause
-        exit /b 0
-    ) else (
-        echo.
-        echo 请手动下载并安装 Docker Desktop:
-        echo https://www.docker.com/products/docker-desktop
-        pause
-        exit /b 1
     )
+
+    echo [安装中] 正在运行 Docker Desktop 安装程序...
+    echo 请按照安装向导完成安装（通常只需点击"OK"即可）
+    echo.
+
+    "%TEMP%\chip_fault_installer\DockerDesktopInstaller.exe"
+
+    echo.
+    echo ==========================================
+    echo   Docker Desktop 安装完成
+    echo ==========================================
+    echo.
+    echo 重要提示:
+    echo   1. 请重启计算机
+    echo   2. 启动 Docker Desktop
+    echo   3. 等待 Docker 完全启动（托盘图标变绿）
+    echo   4. 重新运行本脚本
+    echo.
+    pause
+    exit /b 0
 )
 
 for /f "tokens=3" %%i in ('docker --version') do set DOCKER_VERSION=%%i
