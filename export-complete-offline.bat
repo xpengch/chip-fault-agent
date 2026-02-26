@@ -244,16 +244,17 @@ echo     if "%%CHOICE%"=="1" ^(
 echo         echo # ============================================^> .env.new
 echo         echo # LLM Configuration - Anthropic Claude^>^> .env.new
 echo         echo # ============================================^>^> .env.new
-echo         ANTHROPIC_API_KEY=%%API_KEY%%^>^> .env.new
-echo         ANTHROPIC_BASE_URL=https://api.anthropic.com^>^> .env.new
-echo         ANTHROPIC_MODEL=claude-3-opus-20240229^>^> .env.new
+echo         echo ANTHROPIC_API_KEY=%%API_KEY%%^>^> .env.new
+echo         echo ANTHROPIC_BASE_URL=https://api.anthropic.com^>^> .env.new
+echo         echo ANTHROPIC_MODEL=claude-3-opus-20240229^>^> .env.new
 echo         echo. ^>^> .env.new
 echo         echo # OpenAI (disabled)^>^> .env.new
 echo         echo # OPENAI_API_KEY=^>^> .env.new
 echo         echo # OPENAI_API_BASE=^>^> .env.new
 echo         echo # OPENAI_MODEL=^>^> .env.new
-echo         findstr /V /C:"ANTHROPIC_API_KEY=" /C:"OPENAI_API_KEY=" .env ^>^> .env.new
-echo         move /Y .env.new .env ^>nul
+echo         type .env ^>^> .env.new
+echo         del .env
+echo         ren .env.new .env
 echo     ^)
 echo     if "%%CHOICE%"=="2" ^(
 echo         echo # ============================================^> .env.new
@@ -264,11 +265,12 @@ echo         echo # ANTHROPIC_API_KEY=^>^> .env.new
 echo         echo # ANTHROPIC_BASE_URL=^>^> .env.new
 echo         echo # ANTHROPIC_MODEL=^>^> .env.new
 echo         echo. ^>^> .env.new
-echo         OPENAI_API_KEY=%%API_KEY%%^>^> .env.new
-echo         OPENAI_API_BASE=https://api.openai.com/v1^>^> .env.new
-echo         OPENAI_MODEL=gpt-4-turbo^>^> .env.new
-echo         findstr /V /C:"ANTHROPIC_API_KEY=" /C:"OPENAI_API_KEY=" .env ^>^> .env.new
-echo         move /Y .env.new .env ^>nul
+echo         echo OPENAI_API_KEY=%%API_KEY%%^>^> .env.new
+echo         echo OPENAI_API_BASE=https://api.openai.com/v1^>^> .env.new
+echo         echo OPENAI_MODEL=gpt-4-turbo^>^> .env.new
+echo         type .env ^>^> .env.new
+echo         del .env
+echo         ren .env.new .env
 echo     ^)
 echo     if "%%CHOICE%"=="3" ^(
 echo         echo # ============================================^> .env.new
@@ -279,11 +281,12 @@ echo         echo # ANTHROPIC_API_KEY=^>^> .env.new
 echo         echo # ANTHROPIC_BASE_URL=^>^> .env.new
 echo         echo # ANTHROPIC_MODEL=^>^> .env.new
 echo         echo. ^>^> .env.new
-echo         OPENAI_API_KEY=%%API_KEY%%^>^> .env.new
-echo         OPENAI_API_BASE=http://localhost:8000/v1^>^> .env.new
-echo         OPENAI_MODEL=Qwen/Qwen2-7B-Instruct^>^> .env.new
-echo         findstr /V /C:"ANTHROPIC_API_KEY=" /C:"OPENAI_API_KEY=" .env ^>^> .env.new
-echo         move /Y .env.new .env ^>nul
+echo         echo OPENAI_API_KEY=%%API_KEY%%^>^> .env.new
+echo         echo OPENAI_API_BASE=http://localhost:8000/v1^>^> .env.new
+echo         echo OPENAI_MODEL=Qwen/Qwen2-7B-Instruct^>^> .env.new
+echo         type .env ^>^> .env.new
+echo         del .env
+echo         ren .env.new .env
 echo     ^)
 echo     if "%%CHOICE%"=="3" ^(
 echo         echo     [OK] Configured for COMPLETELY OFFLINE mode
@@ -310,8 +313,11 @@ echo echo ==========================================
 echo echo.
 echo.
 echo echo     [-] Starting databases...
-echo docker compose up -d postgres neo4j redis
-echo timeout /t 10 /nobreak ^>nul
+echo docker compose up -d postgres
+echo echo     [-] Waiting for PostgreSQL to be healthy...
+echo timeout /t 15 /nobreak ^>nul
+echo docker compose up -d neo4j redis
+echo timeout /t 5 /nobreak ^>nul
 echo.
 echo echo     [-] Starting backend...
 echo docker compose up -d backend

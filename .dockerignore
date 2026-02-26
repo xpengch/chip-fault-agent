@@ -67,3 +67,13 @@ nul
 # 操作系统
 .DS_Store
 Thumbs.db
+
+# 导出包和临时文件（不要包含在镜像中）
+chip-fault-offline-package/
+offline-package/
+offline-package-complete/
+*.part*.rar
+*.rar
+
+# BGE 模型（通过 volume 挂载，不打包进镜像）
+bge-model/

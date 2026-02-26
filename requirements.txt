@@ -68,6 +68,8 @@ jinja2>=3.1.0
 # ============================================
 sentence-transformers>=2.2.0
 transformers>=4.35.0
+# CPU 版本 PyTorch (约 200MB，比 CUDA 版本少 2GB)
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 
 # ============================================
