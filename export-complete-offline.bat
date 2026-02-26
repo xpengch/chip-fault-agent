@@ -45,15 +45,15 @@ docker pull neo4j:5.24-community
 docker pull redis:7-alpine
 
 echo     [-] Building PostgreSQL with pgvector (~5 min)...
-docker compose build postgres
+docker build -f Dockerfile.postgres -t chip_fault_agent-postgres:latest .
 docker tag chip_fault_agent-postgres:latest chip-fault-postgres:latest
 
 echo     [-] Building backend (~5 min)...
-docker compose build backend
+docker build -f Dockerfile.backend -t chip_fault_agent-backend:latest .
 docker tag chip_fault_agent-backend:latest chip-fault-backend:latest
 
 echo     [-] Building frontend (~3 min)...
-docker compose build frontend
+docker build -f frontend-v2/Dockerfile.frontend -t chip_fault_agent-frontend:latest frontend-v2
 docker tag chip_fault_agent-frontend:latest chip-fault-frontend:latest
 
 echo     [-] Exporting all images...
