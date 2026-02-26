@@ -33,16 +33,16 @@ if /i not "!CONFIRM!"=="Y" (
 )
 
 echo.
-echo [1/7] Loading PostgreSQL base image...
-if exist %IMAGE_DIR%\postgres-base.tar (
-    docker load -i %IMAGE_DIR%\postgres-base.tar
-    echo [OK] PostgreSQL base loaded
+echo [1/6] Loading PostgreSQL with pgvector (pre-built)...
+if exist %IMAGE_DIR%\postgres.tar (
+    docker load -i %IMAGE_DIR%\postgres.tar
+    echo [OK] PostgreSQL loaded
 ) else (
-    echo [Skip] postgres-base.tar not found
+    echo [Skip] postgres.tar not found
 )
 echo.
 
-echo [2/7] Loading Node.js (for frontend build)...
+echo [2/6] Loading Node.js (for frontend build)...
 if exist %IMAGE_DIR%\node-alpine.tar (
     docker load -i %IMAGE_DIR%\node-alpine.tar
     echo [OK] Node.js loaded
@@ -51,7 +51,7 @@ if exist %IMAGE_DIR%\node-alpine.tar (
 )
 echo.
 
-echo [3/7] Loading Nginx (for frontend)...
+echo [3/6] Loading Nginx (for frontend)...
 if exist %IMAGE_DIR%\nginx-alpine.tar (
     docker load -i %IMAGE_DIR%\nginx-alpine.tar
     echo [OK] Nginx loaded
@@ -60,7 +60,7 @@ if exist %IMAGE_DIR%\nginx-alpine.tar (
 )
 echo.
 
-echo [4/7] Loading Neo4j...
+echo [4/6] Loading Neo4j...
 if exist %IMAGE_DIR%\neo4j.tar (
     docker load -i %IMAGE_DIR%\neo4j.tar
     echo [OK] Neo4j loaded
@@ -69,7 +69,7 @@ if exist %IMAGE_DIR%\neo4j.tar (
 )
 echo.
 
-echo [5/7] Loading Redis...
+echo [5/6] Loading Redis...
 if exist %IMAGE_DIR%\redis.tar (
     docker load -i %IMAGE_DIR%\redis.tar
     echo [OK] Redis loaded
@@ -78,19 +78,13 @@ if exist %IMAGE_DIR%\redis.tar (
 )
 echo.
 
-echo [6/7] Loading Python base (for backend)...
+echo [6/6] Loading Python base (for backend)...
 if exist %IMAGE_DIR%\python-base.tar (
     docker load -i %IMAGE_DIR%\python-base.tar
     echo [OK] Python base loaded
 ) else (
     echo [Skip] python-base.tar not found
 )
-echo.
-
-echo [7/7] Checking additional images...
-docker images | findstr "postgres:16"
-docker images | findstr "node:20-alpine"
-docker images | findstr "nginx:alpine"
 echo.
 
 echo ==========================================

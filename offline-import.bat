@@ -38,12 +38,11 @@ echo.
 
 echo [1/7] Loading Docker images...
 echo     This may take a while...
-echo     Note: First load may take several minutes
 echo.
 
 if exist docker-images\postgres.tar (
     docker load -i docker-images\postgres.tar
-    echo     [-] PostgreSQL with pgvector
+    echo     [-] PostgreSQL with pgvector (pre-built)
 )
 
 if exist docker-images\neo4j.tar (
@@ -59,6 +58,16 @@ if exist docker-images\redis.tar (
 if exist docker-images\python-base.tar (
     docker load -i docker-images\python-base.tar
     echo     [-] Python base
+)
+
+if exist docker-images\node-alpine.tar (
+    docker load -i docker-images\node-alpine.tar
+    echo     [-] Node.js (for frontend)
+)
+
+if exist docker-images\nginx-alpine.tar (
+    docker load -i docker-images\nginx-alpine.tar
+    echo     [-] Nginx (for frontend)
 )
 
 echo [OK] Docker images loaded

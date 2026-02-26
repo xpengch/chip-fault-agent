@@ -22,25 +22,25 @@ echo [2/5] Exporting Docker images...
 echo     This may take a while...
 echo.
 
-echo     [-] Pulling and exporting base images...
+echo     [-] Pulling base images...
 docker pull postgres:16
-docker save postgres:16 -o %PACKAGE_DIR%\docker-images\postgres-base.tar
-
 docker pull node:20-alpine
-docker save node:20-alpine -o %PACKAGE_DIR%\docker-images\node-alpine.tar
-
 docker pull nginx:alpine
-docker save nginx:alpine -o %PACKAGE_DIR%\docker-images\nginx-alpine.tar
-
-echo     [-] Pulling required service images...
 docker pull neo4j:5.24-community
-docker save neo4j:5.24-community -o %PACKAGE_DIR%\docker-images\neo4j.tar
-
 docker pull redis:7-alpine
-docker save redis:7-alpine -o %PACKAGE_DIR%\docker-images\redis.tar
-
 docker pull python:3.12-slim
+
+echo     [-] Building PostgreSQL with pgvector (this takes ~5 minutes)...
+docker compose build postgres
+docker tag chip_fault_agent-postgres:latest chip-fault-postgres:latest
+
+echo     [-] Exporting all images...
+docker save chip-fault-postgres:latest -o %PACKAGE_DIR%\docker-images\postgres.tar
+docker save neo4j:5.24-community -o %PACKAGE_DIR%\docker-images\neo4j.tar
+docker save redis:7-alpine -o %PACKAGE_DIR%\docker-images\redis.tar
 docker save python:3.12-slim -o %PACKAGE_DIR%\docker-images\python-base.tar
+docker save node:20-alpine -o %PACKAGE_DIR%\docker-images\node-alpine.tar
+docker save nginx:alpine -o %PACKAGE_DIR%\docker-images\nginx-alpine.tar
 
 echo [OK] Docker images exported
 echo.

@@ -3,9 +3,12 @@ version: '3.8'
 services:
   # PostgreSQL 数据库
   postgres:
-    build:
-      context: .
-      dockerfile: Dockerfile.postgres
+    # 离线部署时使用预构建镜像
+    # 如果需要重新构建，注释掉 image 行并取消注释 build 部分
+    image: chip-fault-postgres:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.postgres
     container_name: chip-fault-postgres
     environment:
       POSTGRES_USER: postgres
