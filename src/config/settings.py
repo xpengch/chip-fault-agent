@@ -113,6 +113,8 @@ class Settings(BaseSettings):
     CONTEXT_SIMILARITY_THRESHOLD: float = Field(default=0.3, description="语义相似度阈值")
     CONTEXT_MIN_PRESERVE_LINES: int = Field(default=50, description="最少保留日志行数")
     CONTEXT_PRESERVE_RATIO: float = Field(default=0.5, description="初始保留比例")
+    CONTEXT_USE_CLAUDE_STYLE: bool = Field(default=True, description="使用 Claude Code 风格压缩")
+    CONTEXT_TARGET_TOKENS: int = Field(default=18000, description="目标 token 数量（Claude 风格）")
     LLM_MAX_OUTPUT_TOKENS: int = Field(default=2000, description="LLM 最大输出 token 数")
 
     # ============================================

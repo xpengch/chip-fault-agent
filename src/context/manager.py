@@ -45,6 +45,11 @@ class ProcessedContext:
     analysis_context: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # Token 统计
+    raw_tokens: int = 0
+    compressed_tokens: int = 0
+    total_tokens: int = 0
+
     def to_llm_input(self) -> str:
         """转换为 LLM 输入格式"""
         parts = []
@@ -59,7 +64,8 @@ class ProcessedContext:
             parts.append("## 最近对话")
             for msg in self.recent_messages[-3:]:  # 只保留最近3条
                 role = "用户" if msg.get('message_type') in ['user_input', 'correction'] else "系统"
-                parts.append(f"{role}: {msg.get('content', '')[:200]}")  # 限制每条消息长度
+                content = msg.get('content', '')[:200]  # 限制每条消息长度
+                parts.append(f"{role}: {content}")
 
         if self.analysis_context:
             parts.append(f"## 分析上下文\n{self.analysis_context}")
@@ -70,6 +76,15 @@ class ProcessedContext:
         """估算处理后上下文的大小（字节）"""
         content = self.to_llm_input()
         return len(content.encode('utf-8'))
+
+    def estimate_tokens(self) -> int:
+        """估算处理后上下文的 token 数量"""
+        # 中文：约 1.5 字符 = 1 token
+        # 英文：约 4 字符 = 1 token
+        content = self.to_llm_input()
+        chinese_chars = sum(1 for c in content if '\u4e00' <= c <= '\u9fff')
+        other_chars = len(content) - chinese_chars
+        return int(chinese_chars / 1.5 + other_chars / 4)
 
 
 class ContextManager:
@@ -109,13 +124,14 @@ class ContextManager:
 
             # 根据配置选择压缩器
             if self._settings.CONTEXT_USE_SEMANTIC:
-                from .semantic_compressor import SemanticLogCompressor
-                self._compressor = SemanticLogCompressor(
-                    target_size_kb=self.budget.compressed_log // 1024,
-                    similarity_threshold=self._settings.CONTEXT_SIMILARITY_THRESHOLD,
-                    min_lines_to_preserve=self._settings.CONTEXT_MIN_PRESERVE_LINES
+                from .claude_style_compressor import ClaudeStyleCompressor
+                self._compressor = ClaudeStyleCompressor(
+                    token_budget_manager=self._get_token_manager(),
+                    target_tokens=self.budget.compressed_log // 1,  # token 大约是字节的 1/3
+                    enable_semantic=True,
+                    similarity_threshold=self._settings.CONTEXT_SIMILARITY_THRESHOLD
                 )
-                logger.info("[ContextManager] 使用语义压缩器")
+                logger.info("[ContextManager] 使用 Claude Code 风格语义压缩器")
             else:
                 from .compressor import LogCompressor
                 self._compressor = LogCompressor(
@@ -124,6 +140,11 @@ class ContextManager:
                 logger.info("[ContextManager] 使用规则压缩器")
 
         return self._compressor
+
+    def _get_token_manager(self):
+        """获取 Token 预算管理器"""
+        from .token_budget import get_token_budget_manager
+        return get_token_budget_manager()
 
     @property
     def conversation_mgr(self):
@@ -163,9 +184,11 @@ class ContextManager:
         # 1. 压缩日志
         if raw_log:
             log_result = self.compressor.compress(raw_log, fault_features or {})
-            processed.compressed_log = log_result["compressed_log"]
-            processed.metadata["log_compression_ratio"] = log_result["compression_ratio"]
-            logger.info(f"[ContextManager] 日志压缩: {log_result['compression_ratio']:.2%}")
+            processed.compressed_log = log_result.get("compressed_log", "")
+            processed.compressed_tokens = log_result.get("compressed_tokens", 0)
+            processed.metadata["log_compression_ratio"] = log_result.get("compression_ratio", 0)
+            processed.metadata["log_priority_stats"] = log_result.get("priority_stats", {})
+            logger.info(f"[ContextManager] 日志压缩: {len(raw_log)} -> {len(processed.compressed_log)} 字符")
 
         # 2. 处理对话历史
         if conversation_messages:
@@ -178,13 +201,18 @@ class ContextManager:
         if analysis_result:
             processed.analysis_context = self._format_analysis_context(analysis_result)
 
-        # 4. 检查大小并调整
-        current_size = processed.estimate_size()
-        logger.info(f"[ContextManager] 处理后大小: {current_size / 1024:.1f} KB")
+        # 4. 计算 token 统计
+        processed.total_tokens = processed.estimate_tokens()
 
-        if current_size > self.budget.limit_bytes:
+        # 5. 检查大小并调整
+        if processed.total_tokens > (self.budget.limit_bytes // 1):  # 近似 token 比较法
             logger.warning(f"[ContextManager] 仍超限，执行二次压缩")
-            processed = self._further_compress(processed, current_size)
+            processed = self._further_compress(processed)
+
+        logger.info(
+            f"[ContextManager] 处理完成 - 总 tokens: {processed.total_tokens}, "
+            f"预算: ~{self.budget.limit_bytes // 1} tokens"
+        )
 
         return processed
 
@@ -200,30 +228,35 @@ class ContextManager:
 
         return "\n".join(parts)
 
-    def _further_compress(self, processed: ProcessedContext, current_size: int) -> ProcessedContext:
+    def _further_compress(self, processed: ProcessedContext) -> ProcessedContext:
         """进一步压缩（如果仍超限）"""
-        excess_ratio = current_size / self.budget.limit_bytes
+        # 使用 token 预算管理器
+        token_manager = self._get_token_manager()
 
-        # 按比例压缩各部分
+        # 计算超出比例
+        limit_tokens = self.budget.limit_bytes // 1  # 近似值
+        excess_ratio = processed.total_tokens / limit_tokens if processed.total_tokens > 0 else 1
+
+        # 按比例压缩日志（主要占用者）
         if processed.compressed_log and excess_ratio > 1.2:
-            # 日志占用过多，进一步压缩
             lines = processed.compressed_log.split('\n')
             keep_count = int(len(lines) / excess_ratio)
             processed.compressed_log = '\n'.join(lines[:keep_count])
             logger.info(f"[ContextManager] 日志二次压缩: {len(lines)} -> {keep_count} 行")
 
+        # 减少对话消息
         if processed.recent_messages and excess_ratio > 1.1:
-            # 减少最近消息数量
             processed.recent_messages = processed.recent_messages[-1:]
             logger.info("[ContextManager] 减少最近消息到 1 条")
 
-        # 检查是否还需要压缩
-        new_size = processed.estimate_size()
-        if new_size > self.budget.limit_bytes:
-            # 最后的手段：截断
-            content = processed.to_llm_input()
-            max_chars = int(len(content) / excess_ratio) - 100
+        # 重新计算 token
+        processed.total_tokens = processed.estimate_tokens()
+
+        # 如果还需要压缩，截断日志
+        if processed.total_tokens > limit_tokens:
+            max_chars = int(len(processed.compressed_log) / excess_ratio) - 100
             processed.compressed_log = processed.compressed_log[:max_chars]
+            processed.total_tokens = processed.estimate_tokens()
             logger.warning(f"[ContextManager] 强制截断到 {max_chars} 字符")
 
         return processed
