@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     CONTEXT_CONVERSATION_MAX_KB: int = Field(default=10, description="对话历史最大大小(KB)")
     CONTEXT_MAX_RECENT_MESSAGES: int = Field(default=3, description="保留的最近对话消息数")
     CONTEXT_AUTO_COMPRESS: bool = Field(default=True, description="自动压缩上下文")
+    CONTEXT_USE_SEMANTIC: bool = Field(default=True, description="使用语义压缩（需要BGE模型）")
+    CONTEXT_SIMILARITY_THRESHOLD: float = Field(default=0.3, description="语义相似度阈值")
+    CONTEXT_MIN_PRESERVE_LINES: int = Field(default=50, description="最少保留日志行数")
+    CONTEXT_PRESERVE_RATIO: float = Field(default=0.5, description="初始保留比例")
     LLM_MAX_OUTPUT_TOKENS: int = Field(default=2000, description="LLM 最大输出 token 数")
 
     # ============================================

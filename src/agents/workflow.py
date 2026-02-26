@@ -328,7 +328,7 @@ class ChipFaultWorkflow:
         return state
 
     async def _generate_llm_report(self, report_data: Dict[str, Any]) -> Optional[str]:
-        """使用LLM生成分析报告（带上下文管理）"""
+        """使用LLM生成分析报告"""
 
         try:
             from src.config.settings import get_settings
@@ -342,7 +342,7 @@ class ChipFaultWorkflow:
                 logger.warning("[Workflow] 未配置LLM API密钥")
                 return None
 
-            # 使用上下文管理器处理输入
+            # 使用上下文管理器处理输入（智能语义压缩）
             processed_context = await context_manager.process(
                 raw_log=report_data.get("fault_features", {}).get("raw_log", ""),
                 analysis_result=report_data,
@@ -357,30 +357,38 @@ class ChipFaultWorkflow:
             from src.mcp.tools.llm_tool import LLMTool
             llm_tool = LLMTool()
 
-            # 构建提示词（使用处理后的上下文）
+            # 构建完整提示词（不压缩，使用处理后的智能压缩内容）
             messages = [
                 {
                     "role": "system",
-                    "content": """你是芯片失效分析专家。基于提供的数据生成简洁的分析报告：
-1.概述 2.故障特征 3.根因 4.置信度 5.建议
-使用Markdown格式。"""
+                    "content": """你是一位专业的芯片失效分析专家，擅长编写清晰、准确的分析报告。
+
+请基于提供的分析数据，生成一份结构化的分析报告，包含以下部分：
+1. 分析概述
+2. 故障特征分析
+3. 推理过程说明
+4. 根本原因结论
+5. 置信度评估
+6. 建议的解决方案
+
+请使用专业的技术术语，同时保持报告清晰易懂。"""
                 },
                 {
                     "role": "user",
-                    "content": self._build_compact_prompt(report_data, processed_context)
+                    "content": self._build_llm_prompt(report_data, processed_context)
                 }
             ]
 
             # 确定使用的模型
             model = "glm-4.7" if settings.ANTHROPIC_API_KEY else "gpt-4"
 
-            # 调用LLM（降低 max_tokens 以适应上下文限制）
+            # 调用LLM
             logger.info(f"[Workflow] 调用LLM生成报告 - 模型: {model}")
             result = await llm_tool.chat(
                 messages,
                 model=model,
                 temperature=0.7,
-                max_tokens=2000  # 降低到 2000，为输入留更多空间
+                max_tokens=4000
             )
 
             if result.get("success"):
@@ -393,34 +401,102 @@ class ChipFaultWorkflow:
             logger.error(f"[Workflow] LLM报告生成异常: {str(e)}")
             return None
 
-    def _build_compact_prompt(self, report_data: Dict[str, Any], processed_context) -> str:
-        """构建精简版提示词"""
+    def _build_llm_prompt(self, report_data: Dict[str, Any], processed_context=None) -> str:
+        """构建LLM提示词"""
+        # 如果没有处理后的上下文，使用原始方法
+        if processed_context is None:
+            return self._build_original_llm_prompt(report_data)
+
         fault_features = report_data.get("fault_features", {})
         final_root_cause = report_data.get("final_root_cause", {})
+        delimit_results = report_data.get("delimit_results", [])
 
-        prompt_parts = [
-            f"芯片: {report_data.get('chip_model', 'N/A')}",
-            f"分析ID: {report_data.get('analysis_id', 'N/A')}",
-        ]
+        prompt = f"""请基于以下芯片失效分析数据，生成一份专业的分析报告。
 
-        # 使用压缩后的日志
-        if processed_context.compressed_log:
-            prompt_parts.append(f"\n[日志]\n{processed_context.compressed_log}")
+## 基本信息
+- 分析ID: {report_data.get('analysis_id', 'N/A')}
+- 芯片型号: {report_data.get('chip_model', 'N/A')}
+- 分析时间: {report_data.get('created_at', 'N/A')}
 
-        # 添加故障特征（精简）
-        if fault_features.get("error_codes"):
-            prompt_parts.append(f"错误码: {', '.join(fault_features['error_codes'][:10])}")
+## 故障特征
+- 错误码: {', '.join(fault_features.get('error_codes', []))}
+- 失效模块: {', '.join(fault_features.get('modules', []))}
+- 故障描述: {fault_features.get('fault_description', 'N/A')}
+- 时间戳: {fault_features.get('timestamp', 'N/A')}
 
-        # 添加分析结果
-        if final_root_cause:
-            prompt_parts.append(
-                f"\n[分析结果]\n"
-                f"失效域: {final_root_cause.get('failure_domain', 'unknown')}\n"
-                f"根本原因: {final_root_cause.get('root_cause', 'unknown')}\n"
-                f"置信度: {final_root_cause.get('confidence', 0):.0%}"
-            )
+## 日志信息（语义智能压缩后）
+{processed_context.compressed_log if processed_context.compressed_log else '无'}
 
-        return "\n".join(prompt_parts)
+## 推理结果
+- 失效域: {final_root_cause.get('failure_domain', 'Unknown')}
+- 失效模块: {final_root_cause.get('module', 'Unknown')}
+- 根因分类: {final_root_cause.get('root_cause_category', 'Unknown')}
+- 根本原因: {final_root_cause.get('root_cause', 'Unknown')}
+- 置信度: {final_root_cause.get('confidence', 0.0):.1%}
+
+## 推理过程
+"""
+
+        # 添加各个推理源的结果
+        for i, delimit_result in enumerate(delimit_results, 1):
+            source = delimit_result.get("source", "Unknown")
+            result = delimit_result.get("result", {})
+            confidence = delimit_result.get("confidence", 0.0)
+
+            prompt += f"\n### 推理源 {i}: {source}\n"
+            prompt += f"- 失效域: {result.get('failure_domain', 'Unknown')}\n"
+            prompt += f"- 推理依据: {', '.join(result.get('reasoning', []))}\n"
+            prompt += f"- 置信度: {confidence:.1%}\n"
+
+        prompt += """
+
+请生成结构清晰、易于理解的分析报告，使用Markdown格式。"""
+        return prompt
+
+    def _build_original_llm_prompt(self, report_data: Dict[str, Any]) -> str:
+        """构建原始的 LLM 提示词（没有上下文处理时使用）"""
+        fault_features = report_data.get("fault_features", {})
+        final_root_cause = report_data.get("final_root_cause", {})
+        delimit_results = report_data.get("delimit_results", [])
+
+        prompt = f"""请基于以下芯片失效分析数据，生成一份专业的分析报告。
+
+## 基本信息
+- 分析ID: {report_data.get('analysis_id', 'N/A')}
+- 芯片型号: {report_data.get('chip_model', 'N/A')}
+- 分析时间: {report_data.get('created_at', 'N/A')}
+
+## 故障特征
+- 错误码: {', '.join(fault_features.get('error_codes', []))}
+- 失效模块: {', '.join(fault_features.get('modules', []))}
+- 故障描述: {fault_features.get('fault_description', 'N/A')}
+- 时间戳: {fault_features.get('timestamp', 'N/A')}
+
+## 推理结果
+- 失效域: {final_root_cause.get('failure_domain', 'Unknown')}
+- 失效模块: {final_root_cause.get('module', 'Unknown')}
+- 根因分类: {final_root_cause.get('root_cause_category', 'Unknown')}
+- 根本原因: {final_root_cause.get('root_cause', 'Unknown')}
+- 置信度: {final_root_cause.get('confidence', 0.0):.1%}
+
+## 推理过程
+"""
+
+        # 添加各个推理源的结果
+        for i, delimit_result in enumerate(delimit_results, 1):
+            source = delimit_result.get("source", "Unknown")
+            result = delimit_result.get("result", {})
+            confidence = delimit_result.get("confidence", 0.0)
+
+            prompt += f"\n### 推理源 {i}: {source}\n"
+            prompt += f"- 失效域: {result.get('failure_domain', 'Unknown')}\n"
+            prompt += f"- 推理依据: {', '.join(result.get('reasoning', []))}\n"
+            prompt += f"- 置信度: {confidence:.1%}\n"
+
+        prompt += """
+
+请生成结构清晰、易于理解的分析报告，使用Markdown格式。"""
+        return prompt
 
     def _build_llm_prompt(self, report_data: Dict[str, Any]) -> str:
         """构建LLM提示词"""

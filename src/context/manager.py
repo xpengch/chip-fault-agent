@@ -83,14 +83,16 @@ class ContextManager:
     4. 提供实时大小监控
     """
 
-    def __init__(self, budget: Optional[ContextBudget] = None):
+    def __init__(self, budget: Optional[ContextBudget] = None, settings=None):
         """
         初始化上下文管理器
 
         Args:
             budget: 上下文预算配置
+            settings: 应用配置（用于获取压缩参数）
         """
         self.budget = budget or ContextBudget()
+        self._settings = settings
 
         # 延迟导入子组件
         self._compressor = None
@@ -100,10 +102,27 @@ class ContextManager:
     def compressor(self):
         """延迟初始化日志压缩器"""
         if self._compressor is None:
-            from .compressor import LogCompressor
-            self._compressor = LogCompressor(
-                target_size_kb=self.budget.compressed_log // 1024
-            )
+            # 获取配置
+            if self._settings is None:
+                from src.config.settings import get_settings
+                self._settings = get_settings()
+
+            # 根据配置选择压缩器
+            if self._settings.CONTEXT_USE_SEMANTIC:
+                from .semantic_compressor import SemanticLogCompressor
+                self._compressor = SemanticLogCompressor(
+                    target_size_kb=self.budget.compressed_log // 1024,
+                    similarity_threshold=self._settings.CONTEXT_SIMILARITY_THRESHOLD,
+                    min_lines_to_preserve=self._settings.CONTEXT_MIN_PRESERVE_LINES
+                )
+                logger.info("[ContextManager] 使用语义压缩器")
+            else:
+                from .compressor import LogCompressor
+                self._compressor = LogCompressor(
+                    target_size_kb=self.budget.compressed_log // 1024
+                )
+                logger.info("[ContextManager] 使用规则压缩器")
+
         return self._compressor
 
     @property
@@ -262,7 +281,7 @@ def get_context_manager() -> ContextManager:
             conversation_history=settings.CONTEXT_CONVERSATION_MAX_KB * 1024
         )
 
-        _context_manager = ContextManager(budget)
+        _context_manager = ContextManager(budget, settings=settings)
     return _context_manager
 
 
