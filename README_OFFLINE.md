@@ -122,23 +122,41 @@ install.bat
 
 ---
 
-### 步骤 4：配置 API 密钥
+### 步骤 4：配置 LLM API
 
-安装脚本会自动打开 `.env` 文件，根据您的需求配置：
+安装脚本会自动引导您选择和配置 LLM 服务：
 
-**选项 A：Anthropic Claude（云端）**
-```bash
-ANTHROPIC_API_KEY=your_api_key_here
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-ANTHROPIC_MODEL=claude-3-opus-20240229
+```
+==========================================
+Select LLM Provider:
+==========================================
+
+  [1] Anthropic Claude  - Cloud API (requires internet)
+  [2] OpenAI GPT-4      - Cloud API (requires internet)
+  [3] Local Qwen3       - Completely offline
+  [4] Skip              - Configure manually later
+
+Enter choice (1-4):
 ```
 
-**选项 B：本地 Qwen3（完全离线）**
-```bash
-OPENAI_API_KEY=your_api_key_here
-OPENAI_API_BASE=http://localhost:8000/v1
-OPENAI_MODEL=Qwen/Qwen2-7B-Instruct
-```
+**选项 1：Anthropic Claude（需联网）**
+- 输入您的 Anthropic API Key
+- 系统会自动配置并提示需要联网
+
+**选项 2：OpenAI GPT-4（需联网）**
+- 输入您的 OpenAI API Key
+- 系统会自动配置并提示需要联网
+
+**选项 3：本地 Qwen3（完全离线）** ⭐
+- 使用默认本地配置
+- 无需 API Key
+- 系统会提示如何启动本地 Qwen3 服务：
+  ```bash
+  vllm serve Qwen/Qwen2-7B-Instruct --host 0.0.0.0 --port 8000
+  ```
+
+**选项 4：跳过**
+- 稍后手动编辑 `.env` 文件配置
 
 ---
 
@@ -412,16 +430,41 @@ dir bge-model\
 # 应包含：config.json, model.safetensors, tokenizer.json 等
 ```
 
-### 问题 5：后端无法启动
+### 问题 5：LLM API 连接失败
 
 ```powershell
-# 查看详细日志
-docker compose logs backend
+# 查看后端日志
+docker compose logs backend | findstr "LLM"
 
-# 常见原因：
-# - .env 配置错误
-# - 数据库连接失败
-# - API 密钥无效
+# 如果使用云端 API（Anthropic/OpenAI）：
+# - 检查网络连接
+# - 验证 API Key 是否正确
+# - 确认 .env 中的 BASE_URL 配置
+
+# 如果使用本地 Qwen3：
+# - 确认 Qwen3 服务正在运行
+#   curl http://localhost:8000/v1/models
+# - 检查 .env 中的 OPENAI_API_BASE 配置
+# - 启动 Qwen3:
+#   vllm serve Qwen/Qwen2-7B-Instruct --host 0.0.0.0 --port 8000
+```
+
+### 问题 6：需要重新配置 LLM
+
+```powershell
+# 停止服务
+stop.bat
+
+# 编辑 .env 文件
+notepad .env
+
+# 根据需要修改 LLM 配置：
+# - 使用 Anthropic: 取消注释 ANTHROPIC_* 行，注释 OPENAI_* 行
+# - 使用 OpenAI: 取消注释 OPENAI_* 行，注释 ANTHROPIC_* 行
+# - 使用本地 Qwen3: 设置 OPENAI_API_BASE=http://localhost:8000/v1
+
+# 重新启动服务
+start.bat
 ```
 
 ---

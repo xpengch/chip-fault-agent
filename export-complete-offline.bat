@@ -193,24 +193,115 @@ echo     echo     [Skip] redis.tar not found
 echo ^)
 echo.
 echo echo ==========================================
-echo echo   Step 2: Configure Environment
+echo echo   Step 2: Configure LLM API
 echo echo ==========================================
 echo echo.
-echo.
+echo echo.
 echo if not exist .env ^(
 echo     echo     [-] Creating .env from template...
 echo     copy config\.env.docker.template .env ^>nul
 echo     echo     [OK] .env created
 echo     echo.
-echo     echo     [IMPORTANT] Please edit .env file:
-echo     echo       1. Set ANTHROPIC_API_KEY or configure for local Qwen3
-echo     echo       2. Other settings can use defaults
+echo     echo     ==========================================
+echo     echo     Select LLM Provider:
+echo     echo     ==========================================
 echo     echo.
-echo     notepad .env
+echo     echo       [1] Anthropic Claude  - Cloud API (requires internet)
+echo     echo       [2] OpenAI GPT-4      - Cloud API (requires internet)
+echo     echo       [3] Local Qwen3       - Completely offline
+echo     echo       [4] Skip              - Configure manually later
 echo     echo.
-echo     set /p CONTINUE="Press Enter when done..."
+echo     set /p CHOICE="Enter choice (1-4): "
+echo     echo.
+echo     if "%%CHOICE%"=="1" ^(
+echo         echo     [Config] Anthropic Claude selected
+echo     ^)
+echo     if "%%CHOICE%"=="2" ^(
+echo         echo     [Config] OpenAI selected
+echo     ^)
+echo     if "%%CHOICE%"=="3" ^(
+echo         echo     [Config] Local Qwen3 selected - Completely offline mode
+echo     ^)
+echo     if "%%CHOICE%"=="4" ^(
+echo         echo     [Skip] You can edit .env file manually later
+echo     ^)
+echo     echo.
+echo     if "%%CHOICE%"=="1" ^(
+echo         set /p API_KEY="Enter Anthropic API Key: "
+echo     ^)
+echo     if "%%CHOICE%"=="2" ^(
+echo         set /p API_KEY="Enter OpenAI API Key: "
+echo     ^)
+echo     if "%%CHOICE%"=="3" ^(
+echo         echo     [Info] Using default local Qwen3 configuration
+echo         echo            API_BASE: http://localhost:8000/v1
+echo             set API_KEY=sk-local
+echo     ^)
+echo     echo.
+echo     echo     [-] Updating .env file...
+echo     echo.
+echo     if "%%CHOICE%"=="1" ^(
+echo         echo # ============================================^> .env.new
+echo         echo # LLM Configuration - Anthropic Claude^>^> .env.new
+echo         echo # ============================================^>^> .env.new
+echo         ANTHROPIC_API_KEY=%%API_KEY%%^>^> .env.new
+echo         ANTHROPIC_BASE_URL=https://api.anthropic.com^>^> .env.new
+echo         ANTHROPIC_MODEL=claude-3-opus-20240229^>^> .env.new
+echo         echo. ^>^> .env.new
+echo         echo # OpenAI (disabled)^>^> .env.new
+echo         echo # OPENAI_API_KEY=^>^> .env.new
+echo         echo # OPENAI_API_BASE=^>^> .env.new
+echo         echo # OPENAI_MODEL=^>^> .env.new
+echo         findstr /V /C:"ANTHROPIC_API_KEY=" /C:"OPENAI_API_KEY=" .env ^>^> .env.new
+echo         move /Y .env.new .env ^>nul
+echo     ^)
+echo     if "%%CHOICE%"=="2" ^(
+echo         echo # ============================================^> .env.new
+echo         echo # LLM Configuration - OpenAI^>^> .env.new
+echo         echo # ============================================^>^> .env.new
+echo         echo # Anthropic (disabled)^>^> .env.new
+echo         echo # ANTHROPIC_API_KEY=^>^> .env.new
+echo         echo # ANTHROPIC_BASE_URL=^>^> .env.new
+echo         echo # ANTHROPIC_MODEL=^>^> .env.new
+echo         echo. ^>^> .env.new
+echo         OPENAI_API_KEY=%%API_KEY%%^>^> .env.new
+echo         OPENAI_API_BASE=https://api.openai.com/v1^>^> .env.new
+echo         OPENAI_MODEL=gpt-4-turbo^>^> .env.new
+echo         findstr /V /C:"ANTHROPIC_API_KEY=" /C:"OPENAI_API_KEY=" .env ^>^> .env.new
+echo         move /Y .env.new .env ^>nul
+echo     ^)
+echo     if "%%CHOICE%"=="3" ^(
+echo         echo # ============================================^> .env.new
+echo         echo # LLM Configuration - Local Qwen3 (Completely Offline)^>^> .env.new
+echo         echo # ============================================^>^> .env.new
+echo         echo # Anthropic (disabled)^>^> .env.new
+echo         echo # ANTHROPIC_API_KEY=^>^> .env.new
+echo         echo # ANTHROPIC_BASE_URL=^>^> .env.new
+echo         echo # ANTHROPIC_MODEL=^>^> .env.new
+echo         echo. ^>^> .env.new
+echo         OPENAI_API_KEY=%%API_KEY%%^>^> .env.new
+echo         OPENAI_API_BASE=http://localhost:8000/v1^>^> .env.new
+echo         OPENAI_MODEL=Qwen/Qwen2-7B-Instruct^>^> .env.new
+echo         findstr /V /C:"ANTHROPIC_API_KEY=" /C:"OPENAI_API_KEY=" .env ^>^> .env.new
+echo         move /Y .env.new .env ^>nul
+echo     ^)
+echo     if "%%CHOICE%"=="3" ^(
+echo         echo     [OK] Configured for COMPLETELY OFFLINE mode
+echo         echo     [INFO] Make sure local Qwen3 is running at http://localhost:8000
+echo         echo            To start Qwen3: vllm serve Qwen/Qwen2-7B-Instruct --host 0.0.0.0 --port 8000
+echo     ^)
+echo     if "%%CHOICE%"=="1" ^(
+echo         echo     [OK] Configured for Anthropic Claude
+echo         echo     [INFO] Internet connection required for API calls
+echo     ^)
+echo     if "%%CHOICE%"=="2" ^(
+echo         echo     [OK] Configured for OpenAI GPT-4
+echo         echo     [INFO] Internet connection required for API calls
+echo     ^)
+echo     echo.
 echo ^) else ^(
-echo     echo     [OK] .env already exists
+echo     echo     [OK] .env already exists, skipping configuration
+echo     echo     [INFO] Edit .env manually if needed
 echo ^)
 echo.
 echo echo ==========================================
