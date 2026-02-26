@@ -102,6 +102,16 @@ class Settings(BaseSettings):
     ANALYSIS_TIMEOUT_SECONDS: int = Field(default=30, description="分析超时时间")
 
     # ============================================
+    # 上下文管理配置（适配 64KB 限制的 LLM）
+    # ============================================
+    CONTEXT_LIMIT_KB: int = Field(default=64, description="LLM 上下文大小限制(KB)")
+    CONTEXT_LOG_TARGET_KB: int = Field(default=35, description="压缩后日志目标大小(KB)")
+    CONTEXT_CONVERSATION_MAX_KB: int = Field(default=10, description="对话历史最大大小(KB)")
+    CONTEXT_MAX_RECENT_MESSAGES: int = Field(default=3, description="保留的最近对话消息数")
+    CONTEXT_AUTO_COMPRESS: bool = Field(default=True, description="自动压缩上下文")
+    LLM_MAX_OUTPUT_TOKENS: int = Field(default=2000, description="LLM 最大输出 token 数")
+
+    # ============================================
     # JWT配置
     # ============================================
     JWT_SECRET_KEY: str = Field(default="your-secret-key", description="JWT密钥")

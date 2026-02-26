@@ -365,15 +365,42 @@ class MultiTurnConversationHandler:
                 # 兼容字典格式和SQLAlchemy对象格式
                 combined_log = last_message.get("content") if isinstance(last_message, dict) else last_message.content
 
-        # 3. 调用工作流分析
+        # 3. 使用上下文管理器处理输入（自动压缩到 64KB 以内）
+        from src.context import get_context_manager
+        context_manager = get_context_manager()
+
+        # 构建故障特征
+        fault_features = {
+            "error_codes": context.get("accumulated_features", {}).get("error_codes", []),
+            "modules": context.get("accumulated_features", {}).get("modules", []),
+            "fault_description": "",
+            "raw_log": combined_log
+        }
+
+        # 处理上下文（包括大日志和对话历史）
+        processed_context = await context_manager.process(
+            raw_log=combined_log,
+            conversation_messages=context.get("messages", []),
+            fault_features=fault_features
+        )
+
+        logger.info(
+            f"[MultiTurnHandler] 上下文压缩完成 - "
+            f"日志: {len(combined_log)} -> {len(processed_context.compressed_log)} 字符"
+        )
+
+        # 4. 调用工作流分析（使用压缩后的日志）
         workflow = get_workflow()
         result = await workflow.run(
             chip_model=chip_model,
-            raw_log=combined_log,
+            raw_log=processed_context.compressed_log,  # 使用压缩后的日志
             session_id=session_id,
             user_id=user_id,
             infer_threshold=0.7
         )
+
+        # 添加上下文管理元数据到结果
+        result["context_metadata"] = processed_context.metadata
 
         return result
 
