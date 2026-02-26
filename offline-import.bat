@@ -45,6 +45,16 @@ if exist docker-images\postgres.tar (
     echo     [-] PostgreSQL with pgvector (pre-built)
 )
 
+if exist docker-images\backend.tar (
+    docker load -i docker-images\backend.tar
+    echo     [-] Backend (pre-built)
+)
+
+if exist docker-images\frontend.tar (
+    docker load -i docker-images\frontend.tar
+    echo     [-] Frontend (pre-built)
+)
+
 if exist docker-images\neo4j.tar (
     docker load -i docker-images\neo4j.tar
     echo     [-] Neo4j
@@ -55,38 +65,10 @@ if exist docker-images\redis.tar (
     echo     [-] Redis
 )
 
-if exist docker-images\python-base.tar (
-    docker load -i docker-images\python-base.tar
-    echo     [-] Python base
-)
-
-if exist docker-images\node-alpine.tar (
-    docker load -i docker-images\node-alpine.tar
-    echo     [-] Node.js (for frontend)
-)
-
-if exist docker-images\nginx-alpine.tar (
-    docker load -i docker-images\nginx-alpine.tar
-    echo     [-] Nginx (for frontend)
-)
-
 echo [OK] Docker images loaded
 echo.
 
-echo [2/7] Creating Python virtual environment...
-if not exist venv (
-    python -m venv venv
-)
-echo [OK] Virtual environment created
-echo.
-
-echo [3/7] Installing Python dependencies...
-call venv\Scripts\activate.bat
-pip install --no-index --find-links=python-packages -r requirements.txt
-echo [OK] Python dependencies installed
-echo.
-
-echo [3.5/7] Checking BGE model...
+echo [2/7] Checking BGE model...
 if exist bge-model (
     echo [OK] BGE model found in bge-model directory
     echo     The model will be mounted to the container
@@ -97,7 +79,7 @@ if exist bge-model (
 )
 echo.
 
-echo [4/7] Configuring environment...
+echo [3/7] Configuring environment...
 if not exist .env (
     if exist .env.docker.template (
         copy .env.docker.template .env >nul
@@ -111,7 +93,7 @@ if not exist .env (
 echo [OK] Environment configured
 echo.
 
-echo [5/7] Initializing database...
+echo [4/7] Initializing database...
 if not exist sql mkdir sql
 if not exist sql\init.sql (
             echo CREATE EXTENSION IF NOT EXISTS vector; > sql\init.sql
@@ -119,12 +101,12 @@ if not exist sql\init.sql (
 echo [OK] Database initialized
 echo.
 
-echo [6/7] Starting services...
+echo [5/7] Starting services...
 docker compose up -d
 echo [OK] Services started
 echo.
 
-echo [7/7] Waiting for services to be ready...
+echo [6/7] Waiting for services to be ready...
 timeout /t 30 /nobreak >nul
 
 curl -s http://localhost:8889/api/v1/health >nul 2>&1
